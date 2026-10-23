@@ -12,7 +12,7 @@
 //! shaped text in theme colors.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -52,8 +52,8 @@ pub struct VisualFrame {
     action_engine: Option<EngineHandle>,
     action_target_device_id: Option<String>,
     chat_id: Option<String>,
-    reply_pending: bool,
-    reply_sent: bool,
+    reply_pending: HashSet<SharedString>,
+    reply_sent: HashSet<SharedString>,
     load: Load,
     runtime: Option<Rc<RefCell<zeron_visual::Visual>>>,
     tree: Option<Rc<Node>>,
@@ -263,8 +263,8 @@ impl VisualFrame {
             action_engine,
             action_target_device_id,
             chat_id,
-            reply_pending: false,
-            reply_sent: false,
+            reply_pending: HashSet::new(),
+            reply_sent: HashSet::new(),
             load,
             runtime: None,
             tree: None,
@@ -350,8 +350,13 @@ impl VisualFrame {
 
     /// Submit a reader-selected response through Zeron's durable command plane.
     /// A Steer command reaches a live turn or starts the next turn when idle.
-    fn submit_reply(&mut self, reply: &str, cx: &mut Context<Self>) {
-        if self.reply_pending || self.reply_sent {
+    fn submit_reply(
+        &mut self,
+        action_id: SharedString,
+        reply: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.reply_pending.contains(&action_id) || self.reply_sent.contains(&action_id) {
             return;
         }
         let reply = reply.trim();
@@ -380,7 +385,7 @@ impl VisualFrame {
             params["targetDeviceId"] = serde_json::Value::String(target);
         }
 
-        self.reply_pending = true;
+        self.reply_pending.insert(action_id.clone());
         self.error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -395,12 +400,12 @@ impl VisualFrame {
                 Err(_) => Some("sending the response timed out".to_owned()),
             };
             let _ = this.update(cx, |this, cx| {
-                this.reply_pending = false;
+                this.reply_pending.remove(&action_id);
                 if let Some(error) = error {
-                    this.reply_sent = false;
+                    this.reply_sent.remove(&action_id);
                     this.error = Some(format!("Could not send interactive reply: {error}").into());
                 } else {
-                    this.reply_sent = true;
+                    this.reply_sent.insert(action_id);
                 }
                 cx.notify();
             });
@@ -748,9 +753,12 @@ impl VisualFrame {
             } => {
                 let handler = *on_click;
                 let reply = reply.clone();
-                let text = if reply.is_some() && self.reply_sent {
+                let action_id = self.element_id(path);
+                let sent = reply.is_some() && self.reply_sent.contains(&action_id);
+                let pending = reply.is_some() && self.reply_pending.contains(&action_id);
+                let text = if sent {
                     "Sent".to_owned()
-                } else if reply.is_some() && self.reply_pending {
+                } else if pending {
                     "Sending…".to_owned()
                 } else {
                     label.clone()
@@ -769,13 +777,13 @@ impl VisualFrame {
                 .aria_label(SharedString::from(label.clone()))
                 .child(text);
                 if let Some(reply) = reply {
-                    if self.reply_pending || self.reply_sent {
+                    if pending || sent {
                         button.opacity(0.55).into_any_element()
                     } else {
                         button
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
-                                this.submit_reply(&reply, cx);
+                                this.submit_reply(action_id.clone(), &reply, cx);
                             }))
                             .into_any_element()
                     }

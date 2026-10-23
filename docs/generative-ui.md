@@ -1,12 +1,10 @@
 # Conversational generative UI
 
-This fork starts from Zeron's existing `show_visual` system. It already renders native,
-interactive visuals inside the transcript; the missing bridge is a safe way for a rendered
-control to return an explicit reader choice to the conversation.
+Zeron's existing `show_visual` tool already creates native, interactive visuals. This fork
+adds an explicit bridge from visible controls to the owning conversation and an ergonomic
+choice-group primitive.
 
-## First slice: `ui.reply`
-
-Inside a `show_visual` script, the agent may create a reply button:
+## Reply buttons
 
 ```lua
 return function()
@@ -24,36 +22,57 @@ return function()
 end
 ```
 
-The button is a regular native visual node. Its `message` is size-limited and does not execute
-code or invoke arbitrary RPC methods. Only a deliberate reader click submits the message.
-The desktop UI routes the selected response through the existing durable command plane as a
-`Steer` command, so the agent receives it during a running turn or as the next turn when idle.
-For chats hosted on another device, the request is routed to that owning device.
+A `ui.reply` is a native button whose bounded `message` is submitted only after the reader
+clicks. It cannot execute code or pick arbitrary RPC methods. The desktop sends the response
+through the existing durable command plane as a `Steer` command, allowing the agent to receive
+the answer during a live turn or on the next turn. The owning device is used for remote chats.
+Each button tracks its own in-flight/sent state so submitting one choice doesn't disable the
+other controls.
 
-One click is accepted per visual, duplicate clicks are suppressed while sending and after
-success, and a failed send re-enables the control and surfaces an error in the visual.
+## Choice groups
 
-## Design rules
+For a set of mutually exclusive options, use `ui.choices` with top-level state:
 
-- The model chooses whether prose, a visual, or an interactive control helps; simple answers stay prose.
-- Visual controls use a typed, bounded action. The UI never evaluates arbitrary code from a button click.
-- Treat the reply text as a user selection, not as permission to override the user's original request.
-- Keep data/state local to the visual unless the user explicitly submits a conversational response.
-- A successful RPC enqueue is not proof that the whole task succeeded; the next agent turn must still verify outcomes.
-- Keep existing `ui.button`, chart and custom drawing behavior backwards compatible.
+```lua
+local s = ui.state { approach = "Hybrid" }
+return function()
+  return ui.column { gap = 12,
+    ui.choices {
+      title = "Choose an approach",
+      description = "DOM-first is efficient; visual fallback covers complex controls.",
+      options = { "DOM-first", "Vision-first", "Hybrid" },
+      value = s.approach,
+      on_change = function(v) s.approach = v end,
+      reply_prefix = "Use ",
+      reply_suffix = " for browser automation.",
+      submit_label = "Continue",
+    },
+  }
+end
+```
+
+Changing a tab updates the draft only; Continue sends the selected response. The selected value
+must be one of the declared options and the final message is bounded. Keep state in the
+script's top-level closure, not inside the rendered view, so choices survive UI rerenders.
+
+## Safety and design rules
+
+- The model chooses whether prose, a visual or an interactive control helps; simple answers stay prose.
+- Controls use typed, bounded values. A click never evaluates arbitrary application code.
+- A selected answer is user input, not permission to override the user's original instructions.
+- Local state stays local unless the user explicitly submits a conversational response.
+- A successful enqueue is not proof that the task succeeded; the next agent turn must verify outcomes.
+- Existing `ui.button`, charts, custom drawings and 3D scenes remain backwards compatible.
 
 ## Next increments
 
-1. Add structured choice groups and text/number/select inputs with local draft state and explicit submit.
-2. Add schema-backed native component trees for common ChatGPT-like layouts (forms, cards, tables, diffs,
-   status, progress and artifact previews) so basic interfaces need not be authored as custom Lua.
-3. Bind controls to typed, permission-checked application actions such as opening a diff or running tests.
-4. Add action receipts and result states, plus mobile conversational dispatch parity.
-5. Add fixtures and end-to-end tests for duplicate clicks, failed RPC, remote-device routing, malicious page text,
-   invalid schemas, and user-confirmed high-impact actions.
+1. Add short text and numeric inputs with local draft state and explicit submit.
+2. Add schema-backed native components for forms, status, progress, code diffs and artifact previews.
+3. Bind application actions (open diff, run tests, etc.) to typed permission-checked engine operations.
+4. Add action receipts/result states and mobile conversational dispatch parity.
+5. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
 
-## Current scope
+## Scope
 
-This first slice wires conversational reply buttons on the desktop transcript. Mobile still renders the
-shared visual node; mobile action dispatch parity is tracked as a follow-up and must be implemented before
-claiming full mobile conversational UI support.
+This branch implements desktop reply buttons and a reusable choice group on top of the existing
+Luau visual runtime. It is not yet a universal JSON component protocol or full mobile GenUI.
