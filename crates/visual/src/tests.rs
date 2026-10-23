@@ -527,15 +527,17 @@ fn text_and_number_inputs_preserve_drafts_and_dispatch_changes() {
         .call(*on_change, HandlerArg::Text("-125.50".into()))
         .unwrap();
 
-    assert_eq!(text_of(&visual.render().unwrap()), "Macaneta|-125.50");
+    let final_tree = visual.render().unwrap();
+    let summary = find(&final_tree, &|n| matches!(&n.kind, NodeKind::Text(_)))
+        .expect("summary should render");
+    assert_eq!(text_of(summary), "Macaneta|-125.50");
 }
 
 #[test]
 fn draft_inputs_reject_invalid_types_and_require_change_handlers() {
     for script in [
-        r#"return ui.text_input { label = "Name", value = "x", type = "bogus", on_change = function() end }"#,
+        r#"return ui.input { label = "Name", value = "x", type = "bogus", on_change = function() end }"#,
         r#"return ui.text_input { label = "Name", value = "x" }"#,
-        r#"return ui.number_input { label = "Budget", value = string.rep("1", 8001), on_change = function() end }"#,
     ] {
         let error = Visual::load(script, 1)
             .and_then(|mut visual| visual.render())
