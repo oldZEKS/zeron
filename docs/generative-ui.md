@@ -105,7 +105,7 @@ return function()
     },
     ui.reply {
       label = "Submit details",
-      message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+      message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
       primary = true,
     },
   }
