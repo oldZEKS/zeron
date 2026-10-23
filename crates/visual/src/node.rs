@@ -666,7 +666,8 @@ impl Parser {
             }
             "input" => {
                 props.allow(&["label", "value", "placeholder", "type", "on_change"])?;
-                let numeric = match props.string("type")?.as_deref().unwrap_or("text") {
+                let input_type = props.string("type")?.unwrap_or_else(|| "text".to_owned());
+                let numeric = match input_type.as_str() {
                     "text" => false,
                     "number" => true,
                     _ => return Err(props.error("'type' must be 'text' or 'number'")),
