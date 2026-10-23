@@ -61,6 +61,8 @@ pub enum NodeKind {
         label: String,
         on_click: HandlerId,
         primary: bool,
+        /// When present, clicking submits this explicit response to the owning chat.
+        reply: Option<String>,
     },
     Tabs {
         options: Vec<String>,
@@ -590,11 +592,18 @@ impl Parser {
                 })
             }
             "button" => {
-                props.allow(&["label", "on_click", "primary"])?;
+                props.allow(&["label", "on_click", "primary", "reply"])?;
+                let reply = props.string("reply")?;
+                if reply.as_deref().is_some_and(|message| {
+                    message.trim().is_empty() || message.len() > 8192
+                }) {
+                    return Err(props.error("'reply' must contain 1 to 8192 bytes"));
+                }
                 NodeKind::Button {
                     label: props.required_string("label")?,
                     on_click: self.required_function(&props, "on_click")?,
                     primary: props.bool("primary")?.unwrap_or(false),
+                    reply,
                 }
             }
             "tabs" => {

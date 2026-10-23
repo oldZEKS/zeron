@@ -97,4 +97,17 @@ function ui.range(a, b, step)
 	return out
 end
 
+-- A conversational reply is still a native button, but carries a bounded
+-- message that the host submits to the current chat only after the reader clicks.
+function ui.reply(props)
+	if type(props) ~= "table" then
+		error("ui.reply expects a props table")
+	end
+	props.__kind = "button"
+	props.reply = props.message
+	props.message = nil
+	props.on_click = props.on_click or function() end
+	return props
+end
+
 return ui

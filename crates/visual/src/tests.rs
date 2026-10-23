@@ -338,6 +338,54 @@ fn shaders_default_to_light_and_keep_the_old_transparent_flag() {
     assert_eq!(blend_of("blend = \"opaque\","), Blend::Opaque);
 }
 
+#[test]
+fn conversational_reply_is_a_bounded_native_button() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.reply {
+            label = "Use hybrid",
+            message = "Use DOM targeting first, with screenshot fallback.",
+            primary = true,
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    let NodeKind::Button {
+        label,
+        reply,
+        primary,
+        ..
+    } = tree.kind
+    else {
+        panic!("ui.reply should produce a native button");
+    };
+    assert_eq!(label, "Use hybrid");
+    assert_eq!(
+        reply.as_deref(),
+        Some("Use DOM targeting first, with screenshot fallback.")
+    );
+    assert!(primary);
+
+    for source in [
+        r#"return ui.reply { label = "Empty", message = "" }"#,
+        r#"return ui.reply { label = "Missing" }"#,
+        r#"return ui.reply { label = "Too long", message = string.rep("x", 8193) }"#,
+    ] {
+        let error = Visual::load(source, 1)
+            .and_then(|mut visual| visual.render())
+            .unwrap_err();
+        assert!(
+            error.message.contains("reply") || error.message.contains("message"),
+            "{source}: {}",
+            error.message
+        );
+    }
+}
+
 fn png(width: u32, height: u32) -> Vec<u8> {
     let mut out = Vec::new();
     ::image::RgbaImage::from_fn(width, height, |x, y| {

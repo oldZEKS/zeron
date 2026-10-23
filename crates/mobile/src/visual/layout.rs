@@ -367,6 +367,7 @@ impl Layouter<'_, '_> {
                 label,
                 on_click,
                 primary,
+                ..
             } => self.button(&key, label, *on_click, *primary, x, y),
             NodeKind::Tabs {
                 options,

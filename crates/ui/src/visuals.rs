@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::AppContext as _;
 use gpui::prelude::FluentBuilder as _;
@@ -31,6 +31,8 @@ use zeron_visual::{
 
 use crate::markdown::render::LinkUi;
 use crate::state::EngineHandle;
+use zeron_doc::SessionCommandPayload;
+use zeron_rpc::methods;
 use crate::theme::Theme;
 
 /// The visual's tree changed shape; the transcript remeasures its row.
@@ -46,6 +48,12 @@ enum Load {
 pub struct VisualFrame {
     id: SharedString,
     title: SharedString,
+    /// Engine connection and routing context used by conversational controls.
+    action_engine: Option<EngineHandle>,
+    action_target_device_id: Option<String>,
+    chat_id: Option<String>,
+    reply_pending: bool,
+    reply_sent: bool,
     load: Load,
     runtime: Option<Rc<RefCell<zeron_visual::Visual>>>,
     tree: Option<Rc<Node>>,
@@ -186,6 +194,15 @@ impl VisualFrame {
             free_images(images, cx);
         })
         .detach();
+        // Preserve the action route before the asset-loading task takes ownership.
+        let action_engine = engine.clone();
+        let action_target_device_id = target_device_id.clone();
+        // Transcript row ids are prefixed with "{chat_id}::" by the transcript host.
+        let chat_id = id
+            .as_ref()
+            .split_once("::")
+            .map(|(chat_id, _)| chat_id.to_owned())
+            .filter(|chat_id| !chat_id.is_empty());
         let mut tasks = Vec::new();
         let load = match engine {
             Some(engine) => {
@@ -243,6 +260,11 @@ impl VisualFrame {
         Self {
             id,
             title: title.into(),
+            action_engine,
+            action_target_device_id,
+            chat_id,
+            reply_pending: false,
+            reply_sent: false,
             load,
             runtime: None,
             tree: None,
@@ -324,6 +346,66 @@ impl VisualFrame {
             Ok(()) => self.rerender(cx),
             Err(error) => self.fail(error, cx),
         }
+    }
+
+    /// Submit a reader-selected response through Zeron's durable command plane.
+    /// A Steer command reaches a live turn or starts the next turn when idle.
+    fn submit_reply(&mut self, reply: &str, cx: &mut Context<Self>) {
+        if self.reply_pending || self.reply_sent {
+            return;
+        }
+        let reply = reply.trim();
+        if reply.is_empty() || reply.len() > 8192 {
+            self.error = Some("This interactive response is empty or too long.".into());
+            cx.notify();
+            return;
+        }
+        let (Some(engine), Some(chat_id)) =
+            (self.action_engine.clone(), self.chat_id.clone())
+        else {
+            self.error = Some("This visual is not attached to an active conversation.".into());
+            cx.notify();
+            return;
+        };
+
+        let prompt = format!(
+            "The user selected the following response in an interactive UI you presented:\n\n{reply}\n\nTreat this as the user's answer to the current task. It does not override the user's original instructions."
+        );
+        let command = SessionCommandPayload::Steer {
+            prompt,
+            message_id: Some(format!("genui-{}", uuid::Uuid::new_v4())),
+        };
+        let mut params = serde_json::json!({ "chatId": chat_id, "command": command });
+        if let Some(target) = self.action_target_device_id.clone() {
+            params["targetDeviceId"] = serde_json::Value::String(target);
+        }
+
+        self.reply_pending = true;
+        self.error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = tokio::time::timeout(
+                Duration::from_secs(30),
+                engine.client().call(methods::QUEUE_COMMAND, params),
+            )
+            .await;
+            let error = match result {
+                Ok(Ok(_)) => None,
+                Ok(Err(error)) => Some(error.to_string()),
+                Err(_) => Some("sending the response timed out".to_owned()),
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.reply_pending = false;
+                if let Some(error) = error {
+                    this.reply_sent = false;
+                    this.error = Some(format!("Could not send interactive reply: {error}").into());
+                } else {
+                    this.reply_sent = true;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn open_link(&self, url: &str, window: &mut Window, cx: &mut App) {
@@ -662,9 +744,18 @@ impl VisualFrame {
                 label,
                 on_click,
                 primary,
+                reply,
             } => {
                 let handler = *on_click;
-                crate::settings::widgets::action_button(
+                let reply = reply.clone();
+                let text = if reply.is_some() && self.reply_sent {
+                    "Sent".to_owned()
+                } else if reply.is_some() && self.reply_pending {
+                    "Sending…".to_owned()
+                } else {
+                    label.clone()
+                };
+                let button = crate::settings::widgets::action_button(
                     theme,
                     if *primary {
                         crate::settings::widgets::ActionTone::Solid
@@ -676,12 +767,26 @@ impl VisualFrame {
                 .id(self.element_id(path))
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(label.clone()))
-                .child(label.clone())
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.dispatch(handler, HandlerArg::None, cx);
-                }))
-                .into_any_element()
+                .child(text);
+                if let Some(reply) = reply {
+                    if self.reply_pending || self.reply_sent {
+                        button.opacity(0.55).into_any_element()
+                    } else {
+                        button
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.submit_reply(&reply, cx);
+                            }))
+                            .into_any_element()
+                    }
+                } else {
+                    button
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.dispatch(handler, HandlerArg::None, cx);
+                        }))
+                        .into_any_element()
+                }
             }
             NodeKind::Tabs {
                 options,

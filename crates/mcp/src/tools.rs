@@ -302,6 +302,7 @@ opens like a chat link.\n\
 - Controls: ui.tabs { options = { ... }, value, on_change = function(option) end }, ui.toggle { label, \
 value = bool, on_change = function(on) end }, ui.slider { label, value, min, max, step, unit, on_change \
 = function(n) end }, ui.button { label, on_click = function() end, primary = bool }.\n\
+- Conversational choices: ui.reply { label = "Use this", message = "The user's selected response", primary = true }. It renders as a native button and submits message into this chat only after the reader clicks. Use for choices or next-step decisions, not as decoration. Keep messages concise; use ordinary ui.button for local-only interactions.\n\
 - ui.canvas { height = 240, draw = function(g, w, h, t) ... end, animate = bool, on_click = \
 function(x, y) end }: 2D drawing in pixels, origin top-left, w = the reply column's width. \
 g:line(x1, y1, x2, y2, { color, width, dash }), g:polyline(pts, { color, width }), g:polygon(pts, \
