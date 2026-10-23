@@ -362,7 +362,7 @@ fn native_card_preserves_heading_description_and_children() {
         Some("Balances robust targeting with visual recovery.")
     );
     assert_eq!(card_children.len(), 2);
-    assert!(text_of(&tree).contains("Recommended approach"));
+    assert!(text_of(&tree).contains("Use accessible controls first."));
     assert!(find(&tree, &|n| matches!(n.kind, NodeKind::Stat { .. })).is_some());
 }
 
