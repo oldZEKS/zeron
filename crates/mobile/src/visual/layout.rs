@@ -249,7 +249,6 @@ impl Layouter<'_, '_> {
                         .plain(label, TextSize::Body, Weight::Regular, self.palette.text)
                         .natural(),
             ),
-            NodeKind::Input { .. } => None,
             NodeKind::Link { label, .. } => Some(
                 self.plain(label, TextSize::Body, Weight::Regular, self.palette.accent)
                     .natural(),
