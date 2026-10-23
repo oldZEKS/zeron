@@ -1297,6 +1297,7 @@ impl VisualFrame {
                     .with_single_line()
                     .with_text_metrics(14.0, 22.0)
                     .with_accessibility_role(gpui::Role::TextInput)
+                    .with_accessibility_label(label.to_owned())
                     .with_tab_stop();
                 input.set_text(value.to_owned(), cx);
                 input
