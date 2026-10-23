@@ -99,5 +99,7 @@ script's top-level closure, not inside the rendered view, so choices survive UI 
 
 ## Scope
 
-This branch implements desktop reply buttons and a reusable choice group on top of the existing
-Luau visual runtime. It is not yet a universal JSON component protocol or full mobile GenUI.
+This branch implements desktop reply buttons, reusable choice groups and a native card primitive
+on top of the existing Luau visual runtime. It is not yet a universal JSON component protocol or
+full mobile GenUI. Mobile lays cards out with matching content hierarchy and padding, but the
+desktop's outer card frame is not yet rendered there. Conversational reply dispatch is also desktop-only.
