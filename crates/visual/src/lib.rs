@@ -558,6 +558,13 @@ fn collect_interactions(node: &Node, out: &mut Vec<Interaction>) {
                     HandlerArg::Bool(!value),
                 ));
             }
+            NodeKind::Input { label, value, .. } => {
+                out.push((
+                    format!("editing '{label}'"),
+                    path.clone(),
+                    HandlerArg::Text(value.clone()),
+                ));
+            }
             NodeKind::Slider {
                 label, min, max, ..
             } => {
@@ -604,6 +611,7 @@ fn handler_at(node: &Node, path: &[usize]) -> Option<HandlerId> {
     match &node.kind {
         NodeKind::Tabs { on_change, .. }
         | NodeKind::Toggle { on_change, .. }
+        | NodeKind::Input { on_change, .. }
         | NodeKind::Slider { on_change, .. } => Some(*on_change),
         NodeKind::Button { on_click, .. } => Some(*on_click),
         NodeKind::Stack(Stack { on_click, .. }) => *on_click,
