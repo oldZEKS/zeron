@@ -173,7 +173,6 @@ function ui.choices(props)
 	return view
 end
 
-
 -- Editable draft fields. on_change receives the current draft as a string.
 -- Number fields intentionally preserve intermediate editing states; use
 -- tonumber(draft) and validate before submitting the value.
