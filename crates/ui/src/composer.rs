@@ -1960,7 +1960,7 @@ pub struct ComposerInput {
     /// the message input.
     copies_transcript_selection: bool,
     accessibility_role: Role,
-    accessibility_label: SharedString,
+    accessibility_label: Option<SharedString>,
     focus_handle: FocusHandle,
     content: String,
     edit_revision: u64,
@@ -2085,17 +2085,16 @@ impl ComposerInput {
         key_context: &'static str,
         cx: &mut Context<Self>,
     ) -> Self {
-        let placeholder = placeholder.into();
         Self {
             key_context,
             copies_transcript_selection: false,
             accessibility_role: Role::MultilineTextInput,
-            accessibility_label: placeholder.clone(),
+            accessibility_label: None,
             focus_handle: cx.focus_handle(),
             content: String::new(),
             edit_revision: 0,
             read_only: false,
-            placeholder,
+            placeholder: placeholder.into(),
             selected_range: 0..0,
             selection_reversed: false,
             caret_affinity: CaretAffinity::Downstream,
@@ -2217,7 +2216,7 @@ impl ComposerInput {
 
     /// Use a stable, descriptive label separately from the example placeholder.
     pub fn with_accessibility_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.accessibility_label = label.into();
+        self.accessibility_label = Some(label.into());
         self
     }
 
@@ -5301,7 +5300,11 @@ impl Render for ComposerInput {
         div()
             .id(("composer-input", cx.entity_id()))
             .role(self.accessibility_role)
-            .aria_label(self.accessibility_label.clone())
+            .aria_label(
+                self.accessibility_label
+                    .clone()
+                    .unwrap_or_else(|| self.placeholder.clone()),
+            )
             .aria_placeholder(self.placeholder.clone())
             .key_context(self.key_context)
             .track_focus(&self.focus_handle)
