@@ -339,6 +339,34 @@ fn shaders_default_to_light_and_keep_the_old_transparent_flag() {
 }
 
 #[test]
+fn native_card_preserves_heading_description_and_children() {
+    let mut visual = Visual::load(
+        r#"
+        return ui.card {
+          title = "Recommended approach",
+          description = "Balances robust targeting with visual recovery.",
+          ui.stat { value = "Hybrid", label = "Browser strategy" },
+          ui.text { "Use accessible controls first." },
+        }
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    let NodeKind::Card { title, description, children: card_children, .. } = &tree.kind else {
+        panic!("ui.card should produce a native Card node");
+    };
+    assert_eq!(title.as_deref(), Some("Recommended approach"));
+    assert_eq!(
+        description.as_deref(),
+        Some("Balances robust targeting with visual recovery.")
+    );
+    assert_eq!(card_children.len(), 2);
+    assert!(text_of(&tree).contains("Recommended approach"));
+    assert!(find(&tree, &|n| matches!(n.kind, NodeKind::Stat { .. })).is_some());
+}
+
+#[test]
 fn conversational_reply_is_a_bounded_native_button() {
     let mut visual = Visual::load(
         r#"

@@ -280,6 +280,7 @@ button once) and returns the first error with its line; fix it and call again.\n
 \n\
 Nodes are props tables: children are the array part, strings are plain text, nil and false children \
 are skipped, and lists of nodes flatten (so ui.map results can be children). Unknown props are errors.\n\
+- ui.card { title = "Optional heading", description = "Optional supporting text", gap = 8, ...children } is a compact, theme-styled native card. Cards stack fluidly and take ordinary ui.* children.
 - ui.column { gap = 8, align = \"start|center|end\", ... }, ui.row { gap = 12, align, justify = \
 \"start|center|end|between\", wrap = true, ... }, ui.grid { columns = 3, gap = 16, ... }. Any node \
 takes width = px or grow = true inside a row (sliders, charts, tables, canvases, and scenes fill a \

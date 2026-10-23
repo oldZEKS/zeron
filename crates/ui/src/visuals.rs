@@ -727,6 +727,53 @@ impl VisualFrame {
                 }
                 grid.into_any_element()
             }
+            NodeKind::Card {
+                title,
+                description,
+                gap,
+                children,
+            } => {
+                let mut card = div()
+                    .w_full()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(*gap))
+                    .p(px(12.0))
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(crate::theme::ink(0.02));
+                if let Some(title) = title {
+                    card = card.child(
+                        div()
+                            .text_size(crate::typography::ui_rems(14.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(theme.text)
+                            .child(title.clone()),
+                    );
+                }
+                if let Some(description) = description {
+                    card = card.child(
+                        div()
+                            .text_size(crate::typography::ui_rems(12.0))
+                            .text_color(theme.text_muted)
+                            .child(description.clone()),
+                    );
+                }
+                for (ix, child) in children.iter().enumerate() {
+                    let child_path = format!("{path}.{ix}");
+                    card = card.child(div().min_w_0().child(self.node(
+                        child,
+                        &child_path,
+                        theme,
+                        palette,
+                        window,
+                        cx,
+                    )));
+                }
+                card.into_any_element()
+            }
             NodeKind::Text(text) => text_element(text, theme, palette),
             NodeKind::Rule => div()
                 .h(px(1.0))

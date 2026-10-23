@@ -4,6 +4,31 @@ Zeron's existing `show_visual` tool already creates native, interactive visuals.
 adds an explicit bridge from visible controls to the owning conversation and an ergonomic
 choice-group primitive.
 
+## Native cards
+
+Use `ui.card` for a task-specific section with consistent, theme-aware framing:
+
+```lua
+return function()
+  return ui.grid { columns = 2, gap = 12,
+    ui.card {
+      title = "DOM-first",
+      description = "Fast and reliable for accessible controls.",
+      ui.stat { value = "Low", label = "Setup cost" },
+      ui.text "Best for forms, buttons and links.",
+    },
+    ui.card {
+      title = "Visual fallback",
+      description = "Useful for canvas-driven or inaccessible interfaces.",
+      ui.text "Use screenshots when structured page data is insufficient.",
+    },
+  }
+end
+```
+
+Cards use the native renderer and theme. Their children remain ordinary visual nodes, so
+charts, stats, tables, tabs and conversational controls can be composed inside them.
+
 ## Reply buttons
 
 ```lua

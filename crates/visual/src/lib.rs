@@ -524,7 +524,9 @@ fn exercise_draws(
 pub fn children(node: &Node) -> Box<dyn Iterator<Item = &Node> + '_> {
     match &node.kind {
         NodeKind::Stack(stack) => Box::new(stack.children.iter()),
-        NodeKind::Grid { children, .. } => Box::new(children.iter()),
+        NodeKind::Grid { children, .. } | NodeKind::Card { children, .. } => {
+            Box::new(children.iter())
+        }
         NodeKind::Table(table) => Box::new(table.rows.iter().flatten()),
         _ => Box::new(std::iter::empty()),
     }

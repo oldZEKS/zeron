@@ -17,6 +17,7 @@ for _, kind in
 		"column",
 		"row",
 		"grid",
+		"card",
 		"text",
 		"span",
 		"rule",

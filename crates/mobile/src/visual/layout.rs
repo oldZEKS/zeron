@@ -254,6 +254,7 @@ impl Layouter<'_, '_> {
                     .natural(),
             ),
             NodeKind::Grid { .. }
+            | NodeKind::Card { .. }
             | NodeKind::Table(_)
             | NodeKind::Rule
             | NodeKind::Chart(_)
@@ -305,6 +306,39 @@ impl Layouter<'_, '_> {
                     top += tallest + gap;
                 }
                 (top - y - gap).max(0.0)
+            }
+            NodeKind::Card {
+                title,
+                description,
+                gap,
+                children,
+            } => {
+                let padding = 12.0;
+                let inner_x = x + padding;
+                let inner_width = (width - padding * 2.0).max(1.0);
+                let mut top = y + padding;
+                if let Some(title) = title {
+                    let para = self.plain(title, TextSize::Body, Weight::Semibold, self.palette.text);
+                    top += self.out.paint.para(
+                        self.ctx, &para, inner_x, top, inner_width, Align::Start, false
+                    );
+                    top += *gap;
+                }
+                if let Some(description) = description {
+                    let para = self.plain(description, TextSize::Sm, Weight::Regular, self.palette.muted);
+                    top += self.out.paint.para(
+                        self.ctx, &para, inner_x, top, inner_width, Align::Start, false
+                    );
+                    top += *gap;
+                }
+                for (ix, child) in children.iter().enumerate() {
+                    top += self.place(child, &format!("{path}.{ix}"), inner_x, top, inner_width);
+                    top += *gap;
+                }
+                if !children.is_empty() || title.is_some() || description.is_some() {
+                    top -= *gap;
+                }
+                top - y + padding
             }
             NodeKind::Text(text) => {
                 let para = self.text_para(text);

@@ -40,6 +40,13 @@ pub enum NodeKind {
         gap: f32,
         children: Vec<Node>,
     },
+    /// A themed native card with an optional heading and description.
+    Card {
+        title: Option<String>,
+        description: Option<String>,
+        gap: f32,
+        children: Vec<Node>,
+    },
     Text(Text),
     /// A hairline divider.
     Rule,
@@ -430,6 +437,19 @@ impl Parser {
                 NodeKind::Grid {
                     columns: props.number("columns")?.unwrap_or(3.0).clamp(1.0, 12.0) as u16,
                     gap: props.number("gap")?.unwrap_or(16.0).clamp(0.0, 96.0) as f32,
+                    children,
+                }
+            }
+            "card" => {
+                props.allow(&["title", "description", "gap"])?;
+                let mut children = Vec::new();
+                for child in table.sequence_values::<Value>() {
+                    self.children_into(child?, &mut children, depth + 1)?;
+                }
+                NodeKind::Card {
+                    title: props.string("title")?,
+                    description: props.string("description")?,
+                    gap: props.number("gap")?.unwrap_or(8.0).clamp(0.0, 48.0) as f32,
                     children,
                 }
             }
