@@ -471,7 +471,6 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
     }
 }
 
-
 #[test]
 fn text_and_number_inputs_preserve_drafts_and_dispatch_changes() {
     let mut visual = Visual::load(
