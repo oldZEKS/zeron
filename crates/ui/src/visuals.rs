@@ -1285,7 +1285,7 @@ impl VisualFrame {
     ) -> AnyElement {
         let placeholder = placeholder
             .filter(|value| !value.is_empty())
-            .unwrap_or(label)
+            .unwrap_or(if numeric { "Enter a number" } else { label })
             .to_owned();
         let existing = self.local.borrow().inputs.get(&key).cloned();
         let (input, created) = if let Some(input) = existing {
@@ -1381,11 +1381,6 @@ impl VisualFrame {
                 .text_color(label_color)
                 .child(label.to_owned()),
         );
-        let hint = if numeric {
-            "Number draft"
-        } else {
-            "Text draft"
-        };
         field
             .child(
                 div()
@@ -1398,13 +1393,6 @@ impl VisualFrame {
                     .px(px(9.0))
                     .py(px(5.0))
                     .child(input),
-            )
-            .child(
-                div()
-                    .text_size(crate::typography::ui_rems(10.0))
-                    .line_height(crate::typography::ui_rems(14.0))
-                    .text_color(theme.text_faint)
-                    .child(hint),
             )
             .into_any_element()
     }
