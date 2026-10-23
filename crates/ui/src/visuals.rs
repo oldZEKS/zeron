@@ -1306,7 +1306,9 @@ impl VisualFrame {
                 let mut local = self.local.borrow_mut();
                 local.inputs.insert(key.clone(), input.clone());
                 local.input_values.insert(key.clone(), value.to_owned());
-                local.input_placeholders.insert(key.clone(), placeholder.clone());
+                local
+                    .input_placeholders
+                    .insert(key.clone(), placeholder.clone());
             }
             (input, true)
         };
@@ -1323,7 +1325,9 @@ impl VisualFrame {
                     let value = input.read(cx).text().to_owned();
                     let changed = {
                         let mut local = this.local.borrow_mut();
-                        let previous = local.input_values.insert(field_key.clone(), value.clone());
+                        let previous = local
+                            .input_values
+                            .insert(field_key.clone(), value.clone());
                         previous.as_deref() != Some(value.as_str())
                     };
                     if changed {
