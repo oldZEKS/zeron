@@ -31,6 +31,7 @@ for _, kind in
 		"button",
 		"tabs",
 		"toggle",
+		"input",
 		"slider",
 		"link",
 	}
@@ -170,6 +171,28 @@ function ui.choices(props)
 		primary = props.primary ~= false,
 	})
 	return view
+end
+
+
+-- Editable draft fields. on_change receives the current draft as a string.
+-- Number fields intentionally preserve intermediate editing states; use
+-- tonumber(draft) and validate before submitting the value.
+function ui.text_input(props)
+	if type(props) ~= "table" then
+		error("ui.text_input expects a props table")
+	end
+	props.__kind = "input"
+	props.type = "text"
+	return props
+end
+
+function ui.number_input(props)
+	if type(props) ~= "table" then
+		error("ui.number_input expects a props table")
+	end
+	props.__kind = "input"
+	props.type = "number"
+	return props
 end
 
 return ui
