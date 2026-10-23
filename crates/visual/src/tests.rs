@@ -372,6 +372,7 @@ fn conversational_reply_is_a_bounded_native_button() {
 
     for source in [
         r#"return ui.reply { label = "Empty", message = "" }"#,
+        r#"return ui.reply { label = "Whitespace", message = "   " }"#,
         r#"return ui.reply { label = "Missing" }"#,
         r#"return ui.reply { label = "Too long", message = string.rep("x", 8193) }"#,
     ] {

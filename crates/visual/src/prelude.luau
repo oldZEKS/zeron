@@ -103,6 +103,12 @@ function ui.reply(props)
 	if type(props) ~= "table" then
 		error("ui.reply expects a props table")
 	end
+	if type(props.message) ~= "string" then
+		error("ui.reply requires a message string")
+	end
+	if #props.message == 0 or #props.message > 8192 or not string.match(props.message, "%S") then
+		error("ui.reply message must contain 1 to 8192 non-whitespace bytes")
+	end
 	props.__kind = "button"
 	props.reply = props.message
 	props.message = nil
