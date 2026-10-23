@@ -338,6 +338,139 @@ fn shaders_default_to_light_and_keep_the_old_transparent_flag() {
     assert_eq!(blend_of("blend = \"opaque\","), Blend::Opaque);
 }
 
+#[test]
+fn native_card_preserves_heading_description_and_children() {
+    let mut visual = Visual::load(
+        r#"
+        return ui.card {
+          title = "Recommended approach",
+          description = "Balances robust targeting with visual recovery.",
+          ui.stat { value = "Hybrid", label = "Browser strategy" },
+          ui.text { "Use accessible controls first." },
+        }
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    let NodeKind::Card { title, description, children: card_children, .. } = &tree.kind else {
+        panic!("ui.card should produce a native Card node");
+    };
+    assert_eq!(title.as_deref(), Some("Recommended approach"));
+    assert_eq!(
+        description.as_deref(),
+        Some("Balances robust targeting with visual recovery.")
+    );
+    assert_eq!(card_children.len(), 2);
+    assert!(text_of(&tree).contains("Use accessible controls first."));
+    assert!(find(&tree, &|n| matches!(n.kind, NodeKind::Stat { .. })).is_some());
+}
+
+#[test]
+fn conversational_reply_is_a_bounded_native_button() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.reply {
+            label = "Use hybrid",
+            message = "Use DOM targeting first, with screenshot fallback.",
+            primary = true,
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    let NodeKind::Button {
+        label,
+        reply,
+        primary,
+        ..
+    } = tree.kind
+    else {
+        panic!("ui.reply should produce a native button");
+    };
+    assert_eq!(label, "Use hybrid");
+    assert_eq!(
+        reply.as_deref(),
+        Some("Use DOM targeting first, with screenshot fallback.")
+    );
+    assert!(primary);
+
+    for source in [
+        r#"return ui.reply { label = "Empty", message = "" }"#,
+        r#"return ui.reply { label = "Whitespace", message = "   " }"#,
+        r#"return ui.reply { label = "Missing" }"#,
+        r#"return ui.reply { label = "Too long", message = string.rep("x", 8193) }"#,
+    ] {
+        let error = Visual::load(source, 1)
+            .and_then(|mut visual| visual.render())
+            .unwrap_err();
+        assert!(
+            error.message.contains("reply") || error.message.contains("message"),
+            "{source}: {}",
+            error.message
+        );
+    }
+}
+
+#[test]
+fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { approach = "Hybrid" }
+        return function()
+          return ui.choices {
+            title = "Choose an approach",
+            options = { "DOM-first", "Vision-first", "Hybrid" },
+            value = s.approach,
+            on_change = function(v) s.approach = v end,
+            reply_prefix = "Use ",
+            reply_suffix = " for automation.",
+            submit_label = "Continue",
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let first = visual.render().unwrap();
+    assert!(text_of(&first).contains("Choose an approach"));
+    let (tab_handler, reply) = {
+        let tabs = find(&first, &|n| matches!(n.kind, NodeKind::Tabs { .. })).unwrap();
+        let NodeKind::Tabs { on_change, .. } = tabs.kind else { unreachable!() };
+        let button = find(&first, &|n| matches!(
+            n.kind,
+            NodeKind::Button { reply: Some(_), .. }
+        )).unwrap();
+        let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
+        (on_change, reply.clone())
+    };
+    assert_eq!(reply.as_deref(), Some("Use Hybrid for automation."));
+
+    visual.call(tab_handler, HandlerArg::Text("Vision-first".into())).unwrap();
+    let updated = visual.render().unwrap();
+    let button = find(&updated, &|n| matches!(
+        n.kind,
+        NodeKind::Button { reply: Some(_), .. }
+    )).unwrap();
+    let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
+    assert_eq!(reply.as_deref(), Some("Use Vision-first for automation."));
+
+    for script in [
+        r#"return ui.choices { options = {}, value = "x", on_change = function() end }"#,
+        r#"return ui.choices { options = { "x" }, value = "y", on_change = function() end }"#,
+        r#"return ui.choices { options = { "x" }, value = "x" }"#,
+    ] {
+        let error = Visual::load(script, 1)
+            .and_then(|mut visual| visual.render())
+            .unwrap_err();
+        assert!(error.message.contains("ui.choices"), "{script}: {}", error.message);
+    }
+}
+
 fn png(width: u32, height: u32) -> Vec<u8> {
     let mut out = Vec::new();
     ::image::RgbaImage::from_fn(width, height, |x, y| {

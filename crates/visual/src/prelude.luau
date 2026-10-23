@@ -17,6 +17,7 @@ for _, kind in
 		"column",
 		"row",
 		"grid",
+		"card",
 		"text",
 		"span",
 		"rule",
@@ -95,6 +96,80 @@ function ui.range(a, b, step)
 		table.insert(out, v)
 	end
 	return out
+end
+
+-- A conversational reply is still a native button, but carries a bounded
+-- message that the host submits to the current chat only after the reader clicks.
+function ui.reply(props)
+	if type(props) ~= "table" then
+		error("ui.reply expects a props table")
+	end
+	if type(props.message) ~= "string" then
+		error("ui.reply requires a message string")
+	end
+	if #props.message == 0 or #props.message > 8192 or not string.match(props.message, "%S") then
+		error("ui.reply message must contain 1 to 8192 non-whitespace bytes")
+	end
+	props.__kind = "button"
+	props.reply = props.message
+	props.message = nil
+	props.on_click = props.on_click or function() end
+	return props
+end
+
+-- A native choice group: tabs capture a draft selection, then one reply button
+-- sends the selected value to the owning conversation. The state stays in the
+-- agent's closure, so re-rendering after a tab change preserves the selection.
+function ui.choices(props)
+	if type(props) ~= "table" then
+		error("ui.choices expects a props table")
+	end
+	if type(props.options) ~= "table" or #props.options == 0 then
+		error("ui.choices requires a non-empty options array")
+	end
+	if type(props.value) ~= "string" then
+		error("ui.choices requires value to be a string")
+	end
+	local selected = false
+	for _, option in ipairs(props.options) do
+		if type(option) ~= "string" then
+			error("ui.choices options must all be strings")
+		end
+		if option == props.value then
+			selected = true
+		end
+	end
+	if not selected then
+		error("ui.choices value must match one of its options")
+	end
+	if type(props.on_change) ~= "function" then
+		error("ui.choices requires on_change")
+	end
+	local title = props.title
+	local description = props.description
+	local value = props.value
+	local message = (props.reply_prefix or "") .. value .. (props.reply_suffix or "")
+	if #message == 0 or #message > 8192 then
+		error("ui.choices reply message must contain 1 to 8192 bytes")
+	end
+	local view = { __kind = "column", gap = props.gap or 12 }
+	if title then
+		table.insert(view, ui.text { title, size = "lg", weight = 600 })
+	end
+	if description then
+		table.insert(view, ui.text { description, color = "muted" })
+	end
+	table.insert(view, ui.tabs {
+		options = props.options,
+		value = value,
+		on_change = props.on_change,
+	})
+	table.insert(view, ui.reply {
+		label = props.submit_label or "Continue",
+		message = message,
+		primary = props.primary ~= false,
+	})
+	return view
 end
 
 return ui

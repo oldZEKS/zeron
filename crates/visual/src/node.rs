@@ -40,6 +40,13 @@ pub enum NodeKind {
         gap: f32,
         children: Vec<Node>,
     },
+    /// A themed native card with an optional heading and description.
+    Card {
+        title: Option<String>,
+        description: Option<String>,
+        gap: f32,
+        children: Vec<Node>,
+    },
     Text(Text),
     /// A hairline divider.
     Rule,
@@ -61,6 +68,8 @@ pub enum NodeKind {
         label: String,
         on_click: HandlerId,
         primary: bool,
+        /// When present, clicking submits this explicit response to the owning chat.
+        reply: Option<String>,
     },
     Tabs {
         options: Vec<String>,
@@ -431,6 +440,19 @@ impl Parser {
                     children,
                 }
             }
+            "card" => {
+                props.allow(&["title", "description", "gap"])?;
+                let mut children = Vec::new();
+                for child in table.sequence_values::<Value>() {
+                    self.children_into(child?, &mut children, depth + 1)?;
+                }
+                NodeKind::Card {
+                    title: props.string("title")?,
+                    description: props.string("description")?,
+                    gap: props.number("gap")?.unwrap_or(8.0).clamp(0.0, 48.0) as f32,
+                    children,
+                }
+            }
             "text" => NodeKind::Text(self.text(&props)?),
             "rule" => {
                 props.allow(&[])?;
@@ -590,11 +612,18 @@ impl Parser {
                 })
             }
             "button" => {
-                props.allow(&["label", "on_click", "primary"])?;
+                props.allow(&["label", "on_click", "primary", "reply"])?;
+                let reply = props.string("reply")?;
+                if reply.as_deref().is_some_and(|message| {
+                    message.trim().is_empty() || message.len() > 8192
+                }) {
+                    return Err(props.error("'reply' must contain 1 to 8192 bytes"));
+                }
                 NodeKind::Button {
                     label: props.required_string("label")?,
                     on_click: self.required_function(&props, "on_click")?,
                     primary: props.bool("primary")?.unwrap_or(false),
+                    reply,
                 }
             }
             "tabs" => {

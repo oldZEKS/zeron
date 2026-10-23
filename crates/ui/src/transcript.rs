@@ -6792,8 +6792,13 @@ impl Transcript {
                 let target =
                     (state.local_device_id.as_deref() != Some(owner)).then(|| owner.to_owned());
                 let frame = cx.new(|cx| {
+                    let visual_id = self
+                        .chat_id
+                        .as_ref()
+                        .map(|chat_id| format!("{chat_id}::{row_id}").into())
+                        .unwrap_or_else(|| row_id.clone());
                     crate::visuals::VisualFrame::new(
-                        row_id.clone(),
+                        visual_id,
                         title.to_owned(),
                         path.to_owned(),
                         engine,
