@@ -535,7 +535,14 @@ fn text_and_number_inputs_preserve_drafts_and_dispatch_changes() {
 #[test]
 fn draft_inputs_reject_invalid_types_and_require_change_handlers() {
     for script in [
-        r#"return ui.input { label = "Name", value = "x", type = "bogus", on_change = function() end }"#,
+        r#"
+            return ui.input {
+              label = "Name",
+              value = "x",
+              type = "bogus",
+              on_change = function() end,
+            }
+        "#,
         r#"return ui.text_input { label = "Name", value = "x" }"#,
     ] {
         let error = Visual::load(script, 1)
