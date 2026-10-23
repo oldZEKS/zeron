@@ -471,6 +471,85 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
     }
 }
 
+
+#[test]
+fn text_and_number_inputs_preserve_drafts_and_dispatch_changes() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { project = "", budget = "1." }
+        return function()
+          return ui.column {
+            ui.text_input {
+              label = "Project",
+              value = s.project,
+              placeholder = "Project name",
+              on_change = function(v) s.project = v end,
+            },
+            ui.number_input {
+              label = "Budget",
+              value = s.budget,
+              placeholder = "Amount",
+              on_change = function(v) s.budget = v end,
+            },
+            ui.text { s.project .. "|" .. s.budget },
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let first = visual.render().unwrap();
+    let project = find(&first, &|n| matches!(
+        &n.kind,
+        NodeKind::Input { label, numeric: false, value, .. }
+            if label == "Project" && value.is_empty()
+    ))
+    .expect("text input should be present");
+    let NodeKind::Input { on_change, .. } = &project.kind else {
+        unreachable!()
+    };
+    visual
+        .call(*on_change, HandlerArg::Text("Macaneta".into()))
+        .unwrap();
+
+    let updated = visual.render().unwrap();
+    let budget = find(&updated, &|n| matches!(
+        &n.kind,
+        NodeKind::Input { label, numeric: true, value, .. }
+            if label == "Budget" && value == "1."
+    ))
+    .expect("number input must preserve an in-progress decimal draft");
+    let NodeKind::Input { on_change, .. } = &budget.kind else {
+        unreachable!()
+    };
+    visual
+        .call(*on_change, HandlerArg::Text("-125.50".into()))
+        .unwrap();
+
+    assert_eq!(text_of(&visual.render().unwrap()), "Macaneta|-125.50");
+}
+
+#[test]
+fn draft_inputs_reject_invalid_types_and_require_change_handlers() {
+    for script in [
+        r#"return ui.text_input { label = "Name", value = "x", type = "bogus", on_change = function() end }"#,
+        r#"return ui.text_input { label = "Name", value = "x" }"#,
+        r#"return ui.number_input { label = "Budget", value = string.rep("1", 8001), on_change = function() end }"#,
+    ] {
+        let error = Visual::load(script, 1)
+            .and_then(|mut visual| visual.render())
+            .unwrap_err();
+        assert!(
+            error.message.contains("type")
+                || error.message.contains("on_change")
+                || error.message.contains("value"),
+            "{script}: {}",
+            error.message
+        );
+    }
+}
+
 fn png(width: u32, height: u32) -> Vec<u8> {
     let mut out = Vec::new();
     ::image::RgbaImage::from_fn(width, height, |x, y| {
