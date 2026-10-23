@@ -261,7 +261,8 @@ impl Layouter<'_, '_> {
             | NodeKind::Canvas(_)
             | NodeKind::Scene(_)
             | NodeKind::Shader(_)
-            | NodeKind::Slider { .. } => None,
+            | NodeKind::Slider { .. }
+            | NodeKind::Input { .. } => None,
         }
     }
 
@@ -396,6 +397,57 @@ impl Layouter<'_, '_> {
                     SurfaceNode::Shader(shader.clone()),
                 );
                 shader.height
+            }
+            NodeKind::Input {
+                label,
+                value,
+                placeholder,
+                numeric,
+                ..
+            } => {
+                // The mobile bridge currently supports taps/sliders but not
+                // editable text entry. Show a static draft preview rather
+                // than presenting a fake interactive touch target.
+                let label_para =
+                    self.plain(label, TextSize::Sm, Weight::Medium, self.palette.muted);
+                let label_h = self.out.paint.para(
+                    self.ctx,
+                    &label_para,
+                    x,
+                    y,
+                    width,
+                    Align::Start,
+                    false,
+                );
+                let shown = if value.is_empty() {
+                    placeholder.as_deref().unwrap_or(if *numeric {
+                        "Enter a number"
+                    } else {
+                        "Enter text"
+                    })
+                } else {
+                    value
+                };
+                let color = if value.is_empty() {
+                    self.palette.muted
+                } else {
+                    self.palette.text
+                };
+                let value_para = self.plain(shown, TextSize::Body, Weight::Regular, color);
+                let value_h = self.out.paint.para(
+                    self.ctx,
+                    &value_para,
+                    x,
+                    y + label_h + 5.0,
+                    width,
+                    Align::Start,
+                    false,
+                );
+                let line_y = y + label_h + 5.0 + value_h + 5.0;
+                self.out
+                    .paint
+                    .rect(x, line_y, width, 1.0, 0.0, self.palette.border);
+                line_y - y + 1.0
             }
             NodeKind::Button {
                 label,

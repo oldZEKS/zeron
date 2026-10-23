@@ -80,6 +80,47 @@ Changing a tab updates the draft only; Continue sends the selected response. The
 must be one of the declared options and the final message is bounded. Keep state in the
 script's top-level closure, not inside the rendered view, so choices survive UI rerenders.
 
+## Text and number draft inputs
+
+Use native single-line fields when the reader needs to supply a value. Keep the draft in
+`ui.state` and handle `on_change`; typing updates local visual state but does not send a chat
+message by itself:
+
+```lua
+local s = ui.state { project = "", budget = "25000" }
+return function()
+  return ui.card {
+    title = "Project setup",
+    ui.text_input {
+      label = "Project name",
+      value = s.project,
+      placeholder = "e.g. Macaneta Tourism School",
+      on_change = function(v) s.project = v end,
+    },
+    ui.number_input {
+      label = "Budget (MZN)",
+      value = s.budget,
+      placeholder = "Enter an amount",
+      on_change = function(v) s.budget = v end,
+    },
+    ui.reply {
+      label = "Submit details",
+      message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
+      primary = true,
+    },
+  }
+end
+```
+
+Both helpers send `on_change` drafts as strings. That is intentional for number fields: while
+typing, a valid draft may temporarily be empty, `-`, or `1.`. Validate with `tonumber(s.budget)`
+and check the range before offering a submit button for consequential operations. A `ui.reply`
+button is the explicit action that sends a response to the conversation.
+
+Desktop fields use Zeron's native editor, preserving keyboard navigation, caret and selection
+between state updates. On mobile the current renderer shows a static value/placeholder preview;
+editable touch input is not wired yet.
+
 ## Safety and design rules
 
 - The model chooses whether prose, a visual or an interactive control helps; simple answers stay prose.

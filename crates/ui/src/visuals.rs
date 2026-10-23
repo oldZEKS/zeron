@@ -30,6 +30,7 @@ use zeron_visual::{
 };
 
 use crate::markdown::render::LinkUi;
+use crate::composer::{ComposerInput, ComposerInputEvent};
 use crate::state::EngineHandle;
 use zeron_doc::SessionCommandPayload;
 use zeron_rpc::methods;
@@ -54,6 +55,7 @@ pub struct VisualFrame {
     chat_id: Option<String>,
     reply_pending: HashSet<SharedString>,
     reply_sent: HashSet<SharedString>,
+    input_subscriptions: HashMap<SharedString, gpui::Subscription>,
     load: Load,
     runtime: Option<Rc<RefCell<zeron_visual::Visual>>>,
     tree: Option<Rc<Node>>,
@@ -84,6 +86,11 @@ struct Local {
     scenes: HashMap<SharedString, SceneCache>,
     shaders: HashMap<SharedString, ShaderCache>,
     draw_error: Option<String>,
+    /// Native editors persist between transcript rerenders.
+    inputs: HashMap<SharedString, gpui::Entity<ComposerInput>>,
+    input_values: HashMap<SharedString, String>,
+    input_handlers: HashMap<SharedString, HandlerId>,
+    input_placeholders: HashMap<SharedString, String>,
 }
 
 /// A shader's newest finished frame, and the next one in the works. Frames
@@ -265,6 +272,7 @@ impl VisualFrame {
             chat_id,
             reply_pending: HashSet::new(),
             reply_sent: HashSet::new(),
+            input_subscriptions: HashMap::new(),
             load,
             runtime: None,
             tree: None,
@@ -316,6 +324,7 @@ impl VisualFrame {
                     let mut keep = std::collections::HashSet::new();
                     Self::node_keys(&tree, &self.id, &mut keep);
                     let images = self.local.borrow_mut().prune(Some(&keep));
+                    self.input_subscriptions.retain(|key, _| keep.contains(key));
                     free_images(images, cx);
                 }
                 self.tree = Some(Rc::new(tree));
@@ -653,6 +662,10 @@ impl Local {
         });
         self.canvases.retain(|key, _| kept(key));
         self.cameras.retain(|key, _| kept(key));
+        self.inputs.retain(|key, _| kept(key));
+        self.input_values.retain(|key, _| kept(key));
+        self.input_handlers.retain(|key, _| kept(key));
+        self.input_placeholders.retain(|key, _| kept(key));
         images
     }
 }
@@ -673,7 +686,7 @@ impl VisualFrame {
         out.insert(Self::key(node, path));
         let children: &[Node] = match &node.kind {
             NodeKind::Stack(stack) => &stack.children,
-            NodeKind::Grid { children, .. } => children,
+            NodeKind::Grid { children, .. } | NodeKind::Card { children, .. } => children,
             NodeKind::Table(table) => {
                 for (r, row) in table.rows.iter().enumerate() {
                     for (c, cell) in row.iter().enumerate() {
@@ -913,6 +926,22 @@ impl VisualFrame {
                     }))
                     .into_any_element()
             }
+            NodeKind::Input {
+                label,
+                value,
+                placeholder,
+                numeric,
+                on_change,
+            } => self.input_field(
+                key,
+                label,
+                value,
+                placeholder.as_deref(),
+                *numeric,
+                *on_change,
+                theme,
+                cx,
+            ),
             NodeKind::Slider {
                 label,
                 value,
@@ -994,6 +1023,7 @@ impl VisualFrame {
             let fluid = matches!(
                 child.kind,
                 NodeKind::Slider { .. }
+                    | NodeKind::Input { .. }
                     | NodeKind::Chart(_)
                     | NodeKind::Canvas(_)
                     | NodeKind::Scene(_)
@@ -1239,6 +1269,139 @@ const SLIDER_TRACK: f32 = 4.0;
 const SLIDER_THUMB: f32 = 14.0;
 
 impl VisualFrame {
+    /// Render a native single-line editor and feed its draft into the script's
+    /// on_change handler. Editor entities are keyed independently from the
+    /// parsed tree so typing does not recreate the caret/selection on rerender.
+    fn input_field(
+        &mut self,
+        key: SharedString,
+        label: &str,
+        value: &str,
+        placeholder: Option<&str>,
+        numeric: bool,
+        handler: HandlerId,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let placeholder = placeholder
+            .filter(|value| !value.is_empty())
+            .unwrap_or(if numeric { "Enter a number" } else { label })
+            .to_owned();
+        let existing = self.local.borrow().inputs.get(&key).cloned();
+        let (input, created) = if let Some(input) = existing {
+            (input, false)
+        } else {
+            let placeholder_for_input = placeholder.clone();
+            let input = cx.new(|cx| {
+                let mut input = ComposerInput::new(placeholder_for_input, cx)
+                    .with_single_line()
+                    .with_text_metrics(14.0, 22.0)
+                    .with_accessibility_role(gpui::Role::TextInput)
+                    .with_accessibility_label(label.to_owned())
+                    .with_tab_stop();
+                input.set_text(value.to_owned(), cx);
+                input
+            });
+            {
+                let mut local = self.local.borrow_mut();
+                local.inputs.insert(key.clone(), input.clone());
+                local.input_values.insert(key.clone(), value.to_owned());
+                local
+                    .input_placeholders
+                    .insert(key.clone(), placeholder.clone());
+            }
+            (input, true)
+        };
+
+        self.local
+            .borrow_mut()
+            .input_handlers
+            .insert(key.clone(), handler);
+
+        if created {
+            let field_key = key.clone();
+            let subscription = cx.subscribe(&input, move |this, input, event, cx| {
+                if matches!(event, ComposerInputEvent::Edited) {
+                    let value = input.read(cx).text().to_owned();
+                    let changed = {
+                        let mut local = this.local.borrow_mut();
+                        let previous = local
+                            .input_values
+                            .insert(field_key.clone(), value.clone());
+                        previous.as_deref() != Some(value.as_str())
+                    };
+                    if changed {
+                        let handler = this
+                            .local
+                            .borrow()
+                            .input_handlers
+                            .get(&field_key)
+                            .copied();
+                        if let Some(handler) = handler {
+                            this.dispatch(handler, HandlerArg::Text(value), cx);
+                        }
+                    }
+                }
+            });
+            self.input_subscriptions.insert(key.clone(), subscription);
+        }
+
+        // Reconcile externally changed script state without destroying an
+        // in-progress native draft. The event baseline is advanced first so
+        // programmatic set_text does not re-enter the Lua change handler.
+        let should_sync_value = self
+            .local
+            .borrow()
+            .input_values
+            .get(&key)
+            .is_some_and(|draft| draft != value);
+        if should_sync_value {
+            self.local
+                .borrow_mut()
+                .input_values
+                .insert(key.clone(), value.to_owned());
+            input.update(cx, |input, cx| input.set_text(value.to_owned(), cx));
+        }
+
+        let should_sync_placeholder = self
+            .local
+            .borrow()
+            .input_placeholders
+            .get(&key)
+            .is_none_or(|old| old != &placeholder);
+        if should_sync_placeholder {
+            self.local
+                .borrow_mut()
+                .input_placeholders
+                .insert(key.clone(), placeholder.clone());
+            input.update(cx, |input, cx| input.set_placeholder(placeholder.clone(), cx));
+        }
+
+        let label_color = theme.text_muted;
+        let mut field = div().w_full().min_w_0().flex().flex_col().gap(px(4.0));
+        field = field.child(
+            div()
+                .text_size(crate::typography::ui_rems(12.0))
+                .line_height(crate::typography::ui_rems(18.0))
+                .text_color(label_color)
+                .child(label.to_owned()),
+        );
+        field
+            .child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded(px(6.0))
+                    .bg(crate::theme::ink(0.02))
+                    .px(px(9.0))
+                    .py(px(5.0))
+                    .child(input),
+            )
+            .into_any_element()
+    }
+
     fn slider(
         &mut self,
         spec: SliderSpec,
