@@ -745,14 +745,14 @@ impl Render for ShortcutsPage {
             (update.clone(), state.automatic(), state.self_updating())
         });
         let app_auto_update_row = app_update_state.as_ref().map(
-            |(update_entity, automatic, can_toggle)| {
+            |(update_entity, automatic, update_supported)| {
                 let mut toggle = widgets::toggle_switch(
                     &theme,
                     *automatic,
                     "app-automatic-updates",
                 )
                 .id("app-automatic-updates-toggle")
-                .tab_index(if *can_toggle { 0 } else { -1 })
+                .tab_index(0)
                 .role(gpui::Role::Switch)
                 .aria_label("Automatic app updates")
                 .aria_toggled(if *automatic {
@@ -761,7 +761,7 @@ impl Render for ShortcutsPage {
                     gpui::Toggled::False
                 });
 
-                if *can_toggle {
+                {
                     let update_entity = update_entity.clone();
                     toggle = toggle
                         .focus_visible(|s| s.border_2().border_color(theme.accent))
@@ -770,8 +770,6 @@ impl Render for ShortcutsPage {
                             update_entity.update(cx, |update, cx| update.toggle_automatic(cx));
                             cx.notify();
                         }));
-                } else {
-                    toggle = toggle.opacity(0.45);
                 }
 
                 widgets::card_row(&theme, false)
@@ -784,10 +782,10 @@ impl Render for ShortcutsPage {
                                 &theme,
                                 vec![
                                     div()
-                                        .child(if *can_toggle {
+                                        .child(if *update_supported {
                                             "Download updates in the background and install on quit."
                                         } else {
-                                            "This installation cannot update itself automatically."
+                                            "Preference is saved, but this build cannot install its own updates."
                                         })
                                         .into_any_element(),
                                 ],
