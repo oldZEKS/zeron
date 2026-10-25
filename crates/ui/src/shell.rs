@@ -559,24 +559,30 @@ pub enum SettingsSection {
     /// Composer and conversation behavior plus thread naming.
     #[default]
     General,
+    /// Application version and self-update preferences.
+    Info,
+    /// User-managed MCP servers injected into coding-agent runs.
+    McpServers,
     Appshots,
     Archived,
 }
 
 impl SettingsSection {
     /// Sections shown in Settings. `Agents` is a legacy Accounts route alias.
-    pub const ALL: [SettingsSection; 12] = [
+    pub const ALL: [SettingsSection; 14] = [
         SettingsSection::General,
         SettingsSection::Appearance,
         SettingsSection::Notifications,
         SettingsSection::Voice,
         SettingsSection::Shortcuts,
         SettingsSection::Harnesses,
+        SettingsSection::McpServers,
         SettingsSection::Devices,
         SettingsSection::Cloud,
         SettingsSection::Billing,
         SettingsSection::Files,
         SettingsSection::Appshots,
+        SettingsSection::Info,
         SettingsSection::Archived,
     ];
 
@@ -631,6 +637,8 @@ impl SettingsSection {
             SettingsSection::Voice => "voice",
             SettingsSection::Shortcuts => "shortcuts",
             SettingsSection::General => "general",
+            SettingsSection::Info => "info",
+            SettingsSection::McpServers => "mcps",
             SettingsSection::Appshots => "appshots",
             SettingsSection::Archived => "archived",
         }
@@ -650,6 +658,8 @@ impl SettingsSection {
             "voice" => SettingsSection::Voice,
             "shortcuts" => SettingsSection::Shortcuts,
             "general" | "conversations" => SettingsSection::General,
+            "info" | "about" => SettingsSection::Info,
+            "mcps" | "mcp-servers" => SettingsSection::McpServers,
             "appshots" => SettingsSection::Appshots,
             "archived" => SettingsSection::Archived,
             _ => return None,
@@ -659,7 +669,7 @@ impl SettingsSection {
     /// Nav groups are separated by spacing alone: preferences, providers and
     /// devices, then workspace data.
     fn starts_nav_group(self) -> bool {
-        matches!(self, Self::Harnesses | Self::Files)
+        matches!(self, Self::Harnesses | Self::McpServers | Self::Files)
     }
 
     /// Sidebar + header label (zeron settings-sidebar.tsx SECTIONS / __root.tsx
@@ -677,6 +687,8 @@ impl SettingsSection {
             SettingsSection::Voice => "Voice",
             SettingsSection::Shortcuts => "Shortcuts",
             SettingsSection::General => "General",
+            SettingsSection::Info => "Info",
+            SettingsSection::McpServers => "MCP Servers",
             SettingsSection::Appshots => "Appshots",
             SettingsSection::Archived => "Archived sessions",
         }
@@ -8486,6 +8498,8 @@ impl Shell {
             SettingsSection::Shortcuts => icons::KEYBOARD,
             SettingsSection::General => icons::SETTINGS,
             SettingsSection::Appshots => icons::MONITOR,
+            SettingsSection::Info => icons::SETTINGS,
+            SettingsSection::McpServers => icons::WIDGET,
             SettingsSection::Archived => icons::ARCHIVE_MINIMALISTIC,
         };
         settings::widgets::scroll_faded(
