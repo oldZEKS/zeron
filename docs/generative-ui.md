@@ -80,6 +80,61 @@ Changing a tab updates the draft only; Continue sends the selected response. The
 must be one of the declared options and the final message is bounded. Keep state in the
 script's top-level closure, not inside the rendered view, so choices survive UI rerenders.
 
+
+## Task status and progress
+
+Use status rows to make the current state explicit without turning the whole answer into a dashboard:
+
+```lua
+return function()
+  return ui.column { gap = 12,
+    ui.status {
+      label = "Indexing documents",
+      detail = "42 of 60 files processed",
+      tone = "info",
+    },
+    ui.progress {
+      label = "Indexing",
+      value = 42,
+      max = 60,
+      tone = "success",
+    },
+    ui.status {
+      label = "Waiting for confirmation",
+      detail = "No action will be taken until you choose.",
+      tone = "warning",
+    },
+  }
+end
+```
+
+`ui.status` accepts `label`, optional `detail`, and `tone` (`info`, `success`,
+`warning`, `error`, or `neutral`). `ui.progress` accepts a numeric `value`, optional
+`min` and `max` (defaulting to 0 and 100), `label`, `tone`, `segments`, and
+`show_value`. Values are clamped to the declared range and rendered as a compact, accessible
+text-based bar. These primitives communicate state; they do not prove that a task actually
+succeeded. Status must come from observed results, not an optimistic guess.
+
+## Code diff previews
+
+`ui.diff` renders a bounded, read-only preview of proposed changes:
+
+```lua
+return function()
+  return ui.diff {
+    file = "src/retry.rs",
+    language = "rust",
+    removed = { "let retries = 0;" },
+    added = { "let retries = 1;" },
+  }
+end
+```
+
+Use `removed` and `added` arrays of lines. At most 40 lines per side are shown, with a
+truncation note when the preview is longer. A diff preview is informational only: it does not
+apply patches, open files, run tests, or authorize an operation.
+
+
 ## Safety and design rules
 
 - The model chooses whether prose, a visual or an interactive control helps; simple answers stay prose.
@@ -92,14 +147,13 @@ script's top-level closure, not inside the rendered view, so choices survive UI 
 ## Next increments
 
 1. Add short text and numeric inputs with local draft state and explicit submit.
-2. Add schema-backed native components for forms, status, progress, code diffs and artifact previews.
+2. Add a schema-backed form primitive and richer artifact previews.
 3. Bind application actions (open diff, run tests, etc.) to typed permission-checked engine operations.
 4. Add action receipts/result states and mobile conversational dispatch parity.
 5. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
 
 ## Scope
 
-This branch implements desktop reply buttons, reusable choice groups and a native card primitive
-on top of the existing Luau visual runtime. It is not yet a universal JSON component protocol or
+This branch implements desktop reply buttons, reusable choice groups, native cards, status rows, progress bars, and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal JSON component protocol or
 full mobile GenUI. Mobile lays cards out with matching content hierarchy and padding, but the
 desktop's outer card frame is not yet rendered there. Conversational reply dispatch is also desktop-only.
