@@ -5858,7 +5858,7 @@ impl Shell {
             SettingsSection::Skills => {
                 if self.skills_page.is_none() {
                     let state = self.state.clone();
-                    self.skills_page = Some(cx.new(|_| SkillsPage::new(state)));
+                    self.skills_page = Some(cx.new(|cx| SkillsPage::new(state, cx)));
                 }
                 match &self.skills_page {
                     Some(page) => page.clone().into_any_element(),
