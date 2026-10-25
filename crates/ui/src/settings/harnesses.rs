@@ -108,43 +108,56 @@ fn install_label(name: &str) -> String {
     format!("Installing {name}…")
 }
 
-/// Decode update rows from another device without letting a newer, unknown
-/// harness hide statuses for providers this build understands.
-fn parse_harness_update_statuses(
+/// Remove rows for providers this build cannot manage before decoding the
+/// remaining typed payloads. This keeps a newer peer's provider from blocking
+/// the supported inventory or update rows.
+fn split_supported_harness_rows(
     value: serde_json::Value,
-) -> Result<(Vec<HarnessUpdateStatus>, Vec<String>), String> {
+    id_field: &str,
+) -> Result<(Vec<serde_json::Value>, Vec<String>), String> {
     let rows = value
         .as_array()
-        .ok_or_else(|| "expected an array of agent update statuses".to_string())?;
-    let mut statuses = Vec::with_capacity(rows.len());
+        .ok_or_else(|| "expected an array of agent rows".to_string())?;
+    let mut supported = Vec::with_capacity(rows.len());
     let mut unsupported = Vec::new();
 
     for row in rows {
-        let Some(slug) = row
-            .get("harness")
+        if let Some(slug) = row
+            .get(id_field)
             .and_then(serde_json::Value::as_str)
-        else {
-            statuses.push(
-                serde_json::from_value::<HarnessUpdateStatus>(row.clone())
-                    .map_err(|error| error.to_string())?,
-            );
-            continue;
-        };
-
-        if HarnessId::from_slug(slug).is_none() {
+            && HarnessId::from_slug(slug).is_none()
+        {
             if !unsupported.iter().any(|known| known == slug) {
                 unsupported.push(slug.to_string());
             }
             continue;
         }
-
-        statuses.push(
-            serde_json::from_value::<HarnessUpdateStatus>(row.clone())
-                .map_err(|error| error.to_string())?,
-        );
+        supported.push(row.clone());
     }
 
+    Ok((supported, unsupported))
+}
+
+fn parse_harness_update_statuses(
+    value: serde_json::Value,
+) -> Result<(Vec<HarnessUpdateStatus>, Vec<String>), String> {
+    let (rows, unsupported) = split_supported_harness_rows(value, "harness")?;
+    let statuses = rows
+        .into_iter()
+        .map(|row| serde_json::from_value::<HarnessUpdateStatus>(row).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok((statuses, unsupported))
+}
+
+fn parse_harness_descriptors(
+    value: serde_json::Value,
+) -> Result<(Vec<HarnessDescriptor>, Vec<String>), String> {
+    let (rows, unsupported) = split_supported_harness_rows(value, "id")?;
+    let descriptors = rows
+        .into_iter()
+        .map(|row| serde_json::from_value::<HarnessDescriptor>(row).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((descriptors, unsupported))
 }
 
 fn install_params(harness: HarnessId, target: &Option<String>) -> serde_json::Value {
@@ -230,7 +243,7 @@ pub struct HarnessesPage {
     updates: Loadable<Vec<HarnessUpdateStatus>>,
     /// Agent update rows from providers newer than this build cannot be acted
     /// on, but they should not block updates for the providers we do know.
-    skipped_update_harnesses: Vec<String>,
+    skipped_harnesses: Vec<String>,
     /// Which device's harnesses are shown/edited; `None` = this device (no
     /// passthrough). Retargeted by the page-header device switcher.
     target_device: Option<String>,
@@ -275,7 +288,7 @@ impl HarnessesPage {
             scroll: widgets::PageScroll::default(),
             harnesses: Loadable::Idle,
             updates: Loadable::Idle,
-            skipped_update_harnesses: Vec::new(),
+            skipped_harnesses: Vec::new(),
             target_device: None,
             device_select: widgets::SelectState::default(),
             policy_selects: Default::default(),
@@ -560,6 +573,14 @@ impl HarnessesPage {
                 .is_some_and(|accounts| accounts.update(cx, |page, cx| page.dismiss_on_escape(cx)))
     }
 
+    fn merge_skipped_harnesses(&mut self, slugs: Vec<String>) {
+        for slug in slugs {
+            if !self.skipped_harnesses.contains(&slug) {
+                self.skipped_harnesses.push(slug);
+            }
+        }
+    }
+
     fn supports_updates(&self, cx: &Context<Self>) -> bool {
         let state = self.state.read(cx);
         let Some(engine) = state.engine() else {
@@ -608,7 +629,7 @@ impl HarnessesPage {
         let painted = matches!(self.harnesses, Loadable::Ready(_))
             .then(|| std::mem::replace(&mut self.harnesses, Loadable::Idle));
         self.updates = Loadable::Idle;
-        self.skipped_update_harnesses.clear();
+        self.skipped_harnesses.clear();
         self.update_task = None;
         self.update_action_task = None;
         self.load(cx);
@@ -630,7 +651,7 @@ impl HarnessesPage {
         let supports_updates = self.supports_updates(cx);
 
         self.harnesses = Loadable::Loading;
-        self.skipped_update_harnesses.clear();
+        self.skipped_harnesses.clear();
         self.updates = if supports_updates {
             Loadable::Loading
         } else {
@@ -654,13 +675,10 @@ impl HarnessesPage {
                                     .update(cx, |page, cx| {
                                         page.updates = match parsed {
                                             Ok((statuses, unsupported)) => {
-                                                page.skipped_update_harnesses = unsupported;
+                                                page.skipped_harnesses = unsupported;
                                                 Loadable::Ready(statuses)
                                             }
-                                            Err(error) => {
-                                                page.skipped_update_harnesses.clear();
-                                                Loadable::Error(error)
-                                            }
+                                            Err(error) => Loadable::Error(error)
                                         };
                                         cx.notify();
                                     })
@@ -672,7 +690,6 @@ impl HarnessesPage {
                         }
                         Err(error) => {
                             this.update(cx, |page, cx| {
-                                page.skipped_update_harnesses.clear();
                                 page.updates = Loadable::Error(error.to_string());
                                 cx.notify();
                             })
@@ -728,9 +745,12 @@ impl HarnessesPage {
             this.update(cx, |page, cx| {
                 page.switching = false;
                 page.harnesses = match result {
-                    Ok(value) => match serde_json::from_value::<Vec<HarnessDescriptor>>(value) {
-                        Ok(list) => Loadable::Ready(list),
-                        Err(err) => Loadable::Error(err.to_string()),
+                    Ok(value) => match parse_harness_descriptors(value) {
+                        Ok((list, skipped)) => {
+                            page.merge_skipped_harnesses(skipped);
+                            Loadable::Ready(list)
+                        }
+                        Err(err) => Loadable::Error(err),
                     },
                     Err(err) => Loadable::Error(err.to_string()),
                 };
@@ -788,17 +808,15 @@ impl HarnessesPage {
                 .call(methods::INSTALL_HARNESS, params)
                 .await
                 .map_err(|error| error.to_string())
-                .and_then(|value| {
-                    serde_json::from_value::<Vec<HarnessDescriptor>>(value)
-                        .map_err(|error| error.to_string())
-                });
+                .and_then(parse_harness_descriptors);
             this.update(cx, |page, cx| {
                 if page.target_device != target {
                     return;
                 }
                 page.installing = None;
                 match result {
-                    Ok(list) => {
+                    Ok((list, skipped)) => {
+                        page.merge_skipped_harnesses(skipped);
                         page.harnesses = Loadable::Ready(list);
                         crate::pickers::bump_harness_catalog(cx);
                     }
@@ -833,7 +851,8 @@ impl HarnessesPage {
                 }
                 match result {
                     Ok(value) => {
-                        if let Ok(list) = serde_json::from_value::<Vec<HarnessDescriptor>>(value) {
+                        if let Ok((list, skipped)) = parse_harness_descriptors(value) {
+                            page.merge_skipped_harnesses(skipped);
                             page.harnesses = Loadable::Ready(list);
                         }
                         if !enabled && page.expanded_harness == Some(harness) {
@@ -874,10 +893,9 @@ impl HarnessesPage {
                     Ok(value) => match parse_harness_update_statuses(value) {
                         Ok((statuses, unsupported)) => {
                             page.updates = Loadable::Ready(statuses);
-                            page.skipped_update_harnesses = unsupported;
+                            page.skipped_harnesses = unsupported;
                         }
                         Err(error) => {
-                            page.skipped_update_harnesses.clear();
                             page.error = Some(error);
                         }
                     },
@@ -1526,9 +1544,9 @@ impl Render for HarnessesPage {
                 .children(scrollbar)
                 .into_any_element();
         }
-        let update_warning = (!self.skipped_update_harnesses.is_empty()).then(|| {
-            let names = self.skipped_update_harnesses.join(", ");
-            let agent_word = if self.skipped_update_harnesses.len() == 1 {
+        let update_warning = (!self.skipped_harnesses.is_empty()).then(|| {
+            let names = self.skipped_harnesses.join(", ");
+            let agent_word = if self.skipped_harnesses.len() == 1 {
                 "agent"
             } else {
                 "agents"
@@ -1618,7 +1636,32 @@ mod tests {
 
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].harness, zeron_proto::HarnessId::Codex);
-        assert_eq!(unsupported, vec!["muse"]);
+        assert_eq!(unsupported, vec!["muse".to_string()]);
+    }
+
+    #[test]
+    fn unknown_provider_inventory_rows_do_not_hide_supported_descriptors() {
+        let known = zeron_engine::registry::HarnessDescriptor {
+            id: zeron_proto::HarnessId::Codex,
+            name: "Codex".into(),
+            supports_steering: false,
+            steering_mode: zeron_proto::SteeringMode::TurnBoundary,
+            reasoning_levels: Vec::new(),
+            installed: true,
+            can_install: false,
+            enabled: Some(true),
+        };
+        let (descriptors, unsupported) = super::parse_harness_descriptors(
+            serde_json::json!([
+                serde_json::to_value(known).unwrap(),
+                { "id": "muse" }
+            ]),
+        )
+        .unwrap();
+
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].id, zeron_proto::HarnessId::Codex);
+        assert_eq!(unsupported, vec!["muse".to_string()]);
     }
 
     #[test]
