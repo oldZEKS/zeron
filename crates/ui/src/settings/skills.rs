@@ -138,7 +138,7 @@ impl Render for SkillsPage {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .child(widgets::row_title(&theme, &skill.name))
+                                .child(widgets::row_title(&theme, skill.name.clone()))
                                 .child(widgets::meta_line(
                                     &theme,
                                     vec![div().child(SharedString::from(description)).into_any_element()],
