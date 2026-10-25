@@ -1,0 +1,258 @@
+//! Settings → MCP Servers: device-local stdio MCP configuration.
+//!
+//! A JSON editor is deliberately used for this first management surface so
+//! command arguments and environment maps can be represented without lossy
+//! per-field UI. Config is validated before it becomes active and is injected
+//! only into newly started agent runs.
+use std::collections::HashSet;
+
+use gpui::{Context, Entity, Focusable as _, Render, SharedString, Window, div, prelude::*, px};
+
+use crate::composer::ComposerInput;
+use crate::settings::{self, ConfiguredMcpServer, SavePolicy};
+use crate::settings::widgets::{self, ActionTone};
+use crate::theme::Theme;
+
+const EXAMPLE: &str = r#"[
+  {
+    "name": "filesystem",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/path/to/project"],
+    "env": {},
+    "enabled": false
+  }
+]"#;
+
+pub struct McpsPage {
+    editor: Entity<ComposerInput>,
+    scroll: widgets::PageScroll,
+    error: Option<String>,
+    saved: Option<String>,
+}
+
+impl McpsPage {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let initial = serde_json::to_string_pretty(&settings::current(cx).mcp_servers)
+            .unwrap_or_else(|_| "[]".to_owned());
+        let editor = cx.new(|cx| {
+            let mut input = ComposerInput::new("Enter a JSON array of MCP server configurations…", cx);
+            input.set_text(initial, cx);
+            input
+        });
+        Self {
+            editor,
+            scroll: widgets::PageScroll::default(),
+            error: None,
+            saved: None,
+        }
+    }
+
+    fn set_editor_text(&mut self, text: String, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| editor.set_text(text, cx));
+        self.error = None;
+        self.saved = None;
+        cx.notify();
+    }
+
+    fn load_saved(&mut self, cx: &mut Context<Self>) {
+        let text = serde_json::to_string_pretty(&settings::current(cx).mcp_servers)
+            .unwrap_or_else(|_| "[]".to_owned());
+        self.set_editor_text(text, cx);
+    }
+
+    fn load_example(&mut self, cx: &mut Context<Self>) {
+        self.set_editor_text(EXAMPLE.to_owned(), cx);
+    }
+
+    fn save(&mut self, cx: &mut Context<Self>) {
+        let raw = self.editor.read(cx).text().to_owned();
+        let mut servers: Vec<ConfiguredMcpServer> = match serde_json::from_str(&raw) {
+            Ok(servers) => servers,
+            Err(error) => {
+                self.error = Some(format!("Invalid JSON: {error}"));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+        };
+        if servers.len() > 32 {
+            self.error = Some("A maximum of 32 MCP servers can be configured.".into());
+            self.saved = None;
+            cx.notify();
+            return;
+        }
+        let mut names = HashSet::new();
+        for (index, server) in servers.iter_mut().enumerate() {
+            server.name = server.name.trim().to_owned();
+            server.command = server.command.trim().to_owned();
+            if server.name.is_empty() || !server.name.chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
+            }) {
+                self.error = Some(format!(
+                    "Server {} needs a name containing only letters, numbers, dots, underscores, or hyphens.",
+                    index + 1
+                ));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+            if !names.insert(server.name.to_ascii_lowercase()) {
+                self.error = Some(format!("The server name '{}' is duplicated.", server.name));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+            if server.command.is_empty() {
+                self.error = Some(format!("Server '{}' needs a command.", server.name));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+            if server.command.contains('\0')
+                || server.args.iter().any(|arg| arg.contains('\0'))
+                || server.env.iter().any(|(key, value)| {
+                    key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0')
+                })
+            {
+                self.error = Some(format!("Server '{}' contains an invalid command, argument, or environment entry.", server.name));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+        }
+        if settings::update(SavePolicy::Immediate, cx, |settings| {
+            settings.mcp_servers = servers.clone();
+        }) {
+            self.error = None;
+            self.saved = Some(format!(
+                "Saved {} MCP server{}. Changes apply to new runs.",
+                servers.len(),
+                if servers.len() == 1 { "" } else { "s" }
+            ));
+            cx.refresh_windows();
+        } else {
+            self.error = Some("Settings are not ready yet. Restart Zeron and try again.".into());
+            self.saved = None;
+        }
+        cx.notify();
+    }
+}
+
+impl Render for McpsPage {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.global::<Theme>().clone();
+        let editor = self.editor.clone();
+        let editor_panel = div()
+            .id("mcp-json-editor-panel")
+            .w_full()
+            .min_h(px(300.0))
+            .max_h(px(520.0))
+            .overflow_y_scroll()
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.input_bg)
+            .p(px(12.0))
+            .child(editor);
+
+        let save_button = widgets::action_button(&theme, ActionTone::Solid)
+            .id("mcp-save-apply")
+            .tab_index(0)
+            .role(gpui::Role::Button)
+            .aria_label("Save and apply MCP configuration")
+            .on_click(cx.listener(|this, _, _, cx| this.save(cx)))
+            .child("Save & Apply");
+        let reload_button = widgets::action_button(&theme, ActionTone::Quiet)
+            .id("mcp-reload-saved")
+            .tab_index(0)
+            .role(gpui::Role::Button)
+            .aria_label("Reload saved MCP configuration")
+            .on_click(cx.listener(|this, _, _, cx| this.load_saved(cx)))
+            .child("Reload saved");
+        let example_button = widgets::action_button(&theme, ActionTone::Quiet)
+            .id("mcp-load-example")
+            .tab_index(0)
+            .role(gpui::Role::Button)
+            .aria_label("Load an example MCP configuration")
+            .on_click(cx.listener(|this, _, _, cx| this.load_example(cx)))
+            .child("Load example");
+
+        let mut result = div()
+            .id("mcp-settings-page-host")
+            .relative()
+            .size_full()
+            .child(
+                crate::edge_fade::edge_faded(
+                    16.0,
+                    true,
+                    true,
+                    div()
+                        .id("mcp-settings-page")
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll.scroll)
+                        .child(
+                            widgets::page_column()
+                                .child(widgets::page_header(&theme, "MCP Servers", None))
+                                .child(widgets::section(
+                                    &theme,
+                                    "Configuration",
+                                    widgets::section_card(&theme)
+                                        .mt_0()
+                                        .child(
+                                            div()
+                                                .text_color(theme.text)
+                                                .child("Configure stdio Model Context Protocol servers for coding-agent runs.")
+                                                .mb(px(8.0)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_color(theme.text_muted)
+                                                .text_size(crate::typography::ui_rems(12.0))
+                                                .mb(px(12.0))
+                                                .child("Use a JSON array with name, command, args, env, and enabled fields. Only entries with enabled set to true are passed to new runs; the built-in Zeron MCP remains separate."),
+                                        )
+                                        .child(editor_panel)
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .flex_wrap()
+                                                .gap(px(8.0))
+                                                .mt(px(12.0))
+                                                .child(save_button)
+                                                .child(reload_button)
+                                                .child(example_button),
+                                        )
+                                        .children(self.error.as_ref().map(|message| {
+                                            div()
+                                                .mt(px(10.0))
+                                                .text_color(theme.danger)
+                                                .child(SharedString::from(message.clone()))
+                                        }))
+                                        .children(self.saved.as_ref().map(|message| {
+                                            div()
+                                                .mt(px(10.0))
+                                                .text_color(theme.success)
+                                                .child(SharedString::from(message.clone()))
+                                        })),
+                                ))
+                                .child(widgets::section(
+                                    &theme,
+                                    "Security and scope",
+                                    widgets::section_card(&theme)
+                                        .mt_0()
+                                        .child(
+                                            div()
+                                                .text_color(theme.text_muted)
+                                                .text_size(crate::typography::ui_rems(12.0))
+                                                .child("MCP server commands run as local child processes with your user permissions. Configure only servers you trust. Environment values are stored in the device-local ui-settings.json file; do not paste credentials you do not want stored there."),
+                                        ),
+                                )),
+                        ),
+                )
+                .fade_overflow_y(&self.scroll.scroll),
+            );
+        result
+    }
+}
