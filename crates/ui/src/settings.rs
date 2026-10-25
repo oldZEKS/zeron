@@ -1930,6 +1930,7 @@ impl UiSettings {
             notifications_background_only,
             files_panel_width,
             agent_update_notifications,
+            mcp_servers,
             right_pane_width,
             pull_request_pane_width,
             right_pane_open,
