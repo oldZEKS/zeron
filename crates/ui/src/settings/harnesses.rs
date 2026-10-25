@@ -495,7 +495,7 @@ impl HarnessesPage {
     /// agent on the selected device. Individual providers retain their own
     /// dropdowns below, so a policy can still be customized after this.
     fn render_all_update_policy(
-        &mut self,
+        &self,
         theme: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -1047,7 +1047,10 @@ impl HarnessesPage {
             return;
         }
         let harnesses = match &self.updates {
-            Loadable::Ready(statuses) => statuses.iter().map(|status| status.harness).collect::<Vec<_>>(),
+            Loadable::Ready(statuses) => statuses
+                .iter()
+                .map(|status| status.harness)
+                .collect::<Vec<_>>(),
             _ => return,
         };
         if harnesses.is_empty() {
