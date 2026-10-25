@@ -742,10 +742,15 @@ impl Render for ShortcutsPage {
         let compact_mode = crate::settings::transcript_compact_mode(cx);
         let app_update_state = crate::app_update::AppUpdate::global(cx).map(|update| {
             let state = update.read(cx);
-            (update.clone(), state.automatic(), state.self_updating())
+            (
+                update.clone(),
+                state.automatic(),
+                state.self_updating() || state.blocker().is_some(),
+                state.self_updating(),
+            )
         });
         let app_auto_update_row = app_update_state.as_ref().map(
-            |(update_entity, automatic, update_supported)| {
+            |(update_entity, automatic, update_capable, update_available_now)| {
                 let mut toggle = widgets::toggle_switch(
                     &theme,
                     *automatic,
@@ -782,8 +787,10 @@ impl Render for ShortcutsPage {
                                 &theme,
                                 vec![
                                     div()
-                                        .child(if *update_supported {
+                                        .child(if *update_available_now {
                                             "Download updates in the background and install on quit."
+                                        } else if *update_capable {
+                                            "This installation supports automatic updates, but updating is temporarily blocked."
                                         } else {
                                             "Preference is saved, but this build cannot install its own updates."
                                         })
@@ -942,9 +949,12 @@ impl Render for ShortcutsPage {
                 })),
             );
         if self.info_page {
-            let update_supported = app_update_state
+            let update_capable = app_update_state
                 .as_ref()
-                .is_some_and(|(_, _, supported)| *supported);
+                .is_some_and(|(_, _, capable, _)| *capable);
+            let update_available_now = app_update_state
+                .as_ref()
+                .is_some_and(|(_, _, _, available)| *available);
             let version_row = widgets::card_row(&theme, true)
                 .child(
                     div()
@@ -960,8 +970,10 @@ impl Render for ShortcutsPage {
                             ],
                         )),
                 );
-            let update_note = if update_supported {
+            let update_note = if update_available_now {
                 "Automatic app updates download in the background and are staged for install on quit."
+            } else if update_capable {
+                "This installation supports automatic updates, but the updater is temporarily blocked. The On/Off preference remains saved."
             } else {
                 "This source or unmanaged build cannot install app updates itself. The preference is saved, and manual update actions remain available where supported."
             };
