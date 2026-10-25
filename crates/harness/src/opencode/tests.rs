@@ -2661,3 +2661,35 @@ fn native_skill_catalog_rejects_unrepresentable_commands() {
         assert_eq!(invocation_links(&invocation.link())[0].1, invocation);
     }
 }
+
+
+#[tokio::test]
+async fn v2_session_create_retries_one_transient_server_error() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_task = tokio::spawn(async move {
+        for (status, body) in [
+            ("500 Internal Server Error", "temporary boot race"),
+            ("200 OK", r#"{"data":{"id":"session-recovered"}}"#),
+        ] {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0u8; 8192];
+            let _ = socket.read(&mut request).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        }
+    });
+
+    let server = Server::attached(format!("http://{address}"));
+    server.protocol.set(Protocol::V2).unwrap();
+    let id = create_session(&server, Some("/workspace"), Some("build"))
+        .await
+        .unwrap();
+    assert_eq!(id, "session-recovered");
+    server_task.await.unwrap();
+}

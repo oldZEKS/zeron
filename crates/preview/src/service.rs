@@ -227,6 +227,7 @@ impl PreviewService {
                                 l.address.port() != zeron_proto::PREVIEW_PROXY_PORT
                                     && l.pid != std::process::id()
                                     && !l.is_authentication_command()
+                                    && !l.is_rust_test_harness()
                             })
                             .filter_map(|listener| {
                                 roots
