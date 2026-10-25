@@ -290,7 +290,10 @@ it the hover wash.\n\
 - ui.text { \"plain \", ui.span { \"bold\", weight = 600, color = \"accent\", mono = true }, size = \
 \"xs|sm|body|lg|xl|2xl\", weight = 400-700, color, mono, italic, align, truncate }, or ui.text \"string\".\n\
 - ui.stat { value = \"182 ms\", label = \"p95 latency\", delta = \"-12%\", tone = \"success\" }: a headline \
-figure over a muted label; tone colors the delta.\n\
+figure over a muted label; tone colors the delta.\n\\
+- ui.status { label = "Building", detail = "Compiling 4 of 6 crates", tone = "info|success|warning|error|neutral" } }: a compact native task-state row. Use status only when its label/detail reflect observed state; it does not establish task success.\n\\
+- ui.progress { label = "Indexing", value = 42, min = 0, max = 60, tone = "info|success|warning|error|neutral", segments = 12, show_value = true }: a bounded native progress bar. value/min/max must be finite numbers and max must exceed min. Values are clamped to the range.\n\\
+- ui.diff { file = "src/app.rs", language = "rust", removed = { "old line" }, added = { "new line" } }: read-only code-change preview; at most 40 removed and 40 added lines. It never applies code, opens files, or runs commands.\n\\
 - ui.table { columns = { \"Region\", { label = \"p95\", align = \"end\" } }, rows = { { \"us-east\", 182 }, \
 ... } }: laid out like a markdown table (bold header, hairline row rules), numbers right-aligned; cells \
 are strings, numbers, or nodes.\n\
