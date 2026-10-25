@@ -303,6 +303,11 @@ pub struct RunRequest {
     /// no Zeron tools; title runs never carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp: Option<McpServer>,
+    /// Additional user-configured MCP servers. The built-in Zeron server is
+    /// carried separately in `mcp` so its chat-scoped identity can be managed
+    /// independently. Additive wire field for older hosts/agents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_servers: Vec<McpServer>,
     /// Host-resolved environment for the spawned agent process (credential
     /// broker secrets on a Cloud device: `CODEX_HOME`, `GH_TOKEN`,
     /// `ANTHROPIC_API_KEY`, …). Filled by the HOST right before the request
@@ -332,6 +337,7 @@ impl std::fmt::Debug for RunRequest {
             attachments,
             worktree,
             mcp,
+            mcp_servers,
             env,
         } = self;
         f.debug_struct("RunRequest")
@@ -346,7 +352,11 @@ impl std::fmt::Debug for RunRequest {
             .field("resume", resume)
             .field("attachments", attachments)
             .field("worktree", worktree)
-            .field("mcp", mcp)
+            .field("mcp", mcp.as_ref().map(|server| &server.name))
+            .field(
+                "mcp_servers",
+                &mcp_servers.iter().map(|server| &server.name).collect::<Vec<_>>(),
+            )
             .field("env", &env.keys().collect::<Vec<_>>())
             .finish()
     }
