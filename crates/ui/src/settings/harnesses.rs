@@ -813,7 +813,7 @@ impl HarnessesPage {
                     .await
                     .map_err(|error| error.to_string())
                     .and_then(|value| {
-                        serde_json::from_value::<zeron_proto::AgentAccountsSnapshot>(value)
+                        accounts::parse_agent_accounts_snapshot(value)
                             .map_err(|error| error.to_string())
                     })
             {
@@ -1769,15 +1769,15 @@ mod tests {
         let (statuses, unsupported) = super::parse_harness_update_statuses(
             serde_json::json!([
                 { "harness": "codex", "phase": "current" },
-                { "harness": "muse", "phase": "current" },
-                { "harness": "muse", "phase": "failed" }
+                { "harness": "future-agent", "phase": "current" },
+                { "harness": "future-agent", "phase": "failed" }
             ]),
         )
         .unwrap();
 
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].harness, zeron_proto::HarnessId::Codex);
-        assert_eq!(unsupported, vec!["muse".to_string()]);
+        assert_eq!(unsupported, vec!["future-agent".to_string()]);
     }
 
     #[test]
@@ -1795,14 +1795,14 @@ mod tests {
         let (descriptors, unsupported) = super::parse_harness_descriptors(
             serde_json::json!([
                 serde_json::to_value(known).unwrap(),
-                { "id": "muse" }
+                { "id": "future-agent" }
             ]),
         )
         .unwrap();
 
         assert_eq!(descriptors.len(), 1);
         assert_eq!(descriptors[0].id, zeron_proto::HarnessId::Codex);
-        assert_eq!(unsupported, vec!["muse".to_string()]);
+        assert_eq!(unsupported, vec!["future-agent".to_string()]);
     }
 
     #[test]
