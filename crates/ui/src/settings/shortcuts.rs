@@ -737,6 +737,63 @@ impl Render for ShortcutsPage {
         let escape_stops_active_agent = self.escape_stops_active_agent;
         let send_behavior = self.composer_send_behavior;
         let compact_mode = crate::settings::transcript_compact_mode(cx);
+        let app_update_state = crate::app_update::AppUpdate::global(cx).map(|update| {
+            let state = update.read(cx);
+            (update.clone(), state.automatic(), state.self_updating())
+        });
+        let app_auto_update_row = app_update_state.as_ref().map(
+            |(update_entity, automatic, can_toggle)| {
+                let mut toggle = widgets::toggle_switch(
+                    &theme,
+                    *automatic,
+                    "app-automatic-updates",
+                )
+                .id("app-automatic-updates-toggle")
+                .tab_index(if *can_toggle { 0 } else { -1 })
+                .role(gpui::Role::Switch)
+                .aria_label("Automatic app updates")
+                .aria_toggled(if *automatic {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                });
+
+                if *can_toggle {
+                    let update_entity = update_entity.clone();
+                    toggle = toggle
+                        .focus_visible(|s| s.border_2().border_color(theme.accent))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            update_entity.update(cx, |update, cx| update.toggle_automatic(cx));
+                            cx.notify();
+                        }));
+                } else {
+                    toggle = toggle.opacity(0.45);
+                }
+
+                widgets::card_row(&theme, false)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(widgets::row_title(&theme, "Automatic app updates"))
+                            .child(widgets::meta_line(
+                                &theme,
+                                vec![
+                                    div()
+                                        .child(if *can_toggle {
+                                            "Download updates in the background and install on quit."
+                                        } else {
+                                            "This installation cannot update itself automatically."
+                                        })
+                                        .into_any_element(),
+                                ],
+                            )),
+                    )
+                    .child(toggle)
+                    .into_any_element()
+            },
+        );
         let customized = self.keymap != KeymapConfig::default()
             || escape_stops_active_agent
             || send_behavior != ComposerSendBehavior::default();
@@ -948,7 +1005,8 @@ impl Render for ShortcutsPage {
                                             .child(send_behavior_row)
                                             .child(compact_mode_row)
                                             .child(compact_model_picker_row)
-                                            .child(escape_behavior_row),
+                                            .child(escape_behavior_row)
+                                            .children(app_auto_update_row),
                                     )
                                     .child(widgets::section(
                                         &theme,
