@@ -1,8 +1,8 @@
 # Conversational generative UI
 
-Zeron's existing `show_visual` tool already creates native, interactive visuals. This fork
-adds an explicit bridge from visible controls to the owning conversation and an ergonomic
-choice-group primitive.
+Zeron's `show_visual` tool renders native, sandboxed visuals inline in a conversation. This fork
+extends that foundation with reply routing, choice groups, status rows, progress bars, and read-only
+diff previews, while keeping controls and local state inside the native visual runtime.
 
 ## Native cards
 
