@@ -51,6 +51,24 @@ struct UpdateRow {
 
 // Reconcile presence without throwing away a disconnected device's last known
 // updates. Removed/unsupported devices leave the inventory entirely.
+/// Newer peers may advertise agents that this build cannot display. Filter
+/// those status rows before deserializing so one unknown provider does not
+/// break the entire device update stream.
+fn parse_supported_statuses(
+    value: serde_json::Value,
+) -> Result<Vec<HarnessUpdateStatus>, serde_json::Error> {
+    let rows = serde_json::from_value::<Vec<serde_json::Value>>(value)?;
+    let supported = rows
+        .into_iter()
+        .filter(|row| {
+            row.get("harness")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|slug| HarnessId::from_slug(slug).is_some())
+        })
+        .collect::<Vec<_>>();
+    serde_json::from_value(serde_json::Value::Array(supported))
+}
+
 fn reconcile_devices(
     devices: &mut std::collections::BTreeMap<String, DeviceUpdates>,
     desired: &std::collections::BTreeMap<String, bool>,
@@ -850,7 +868,7 @@ impl Shell {
                         .await;
                     if let Ok(mut stream) = result {
                         while let Some(value) = stream.recv().await {
-                            let Ok(rows) = serde_json::from_value(value) else {
+                            let Ok(rows) = parse_supported_statuses(value) else {
                                 break;
                             };
                             if this
@@ -964,6 +982,25 @@ mod tests {
             statuses: vec![status(phase)],
             watch: None,
         }
+    }
+
+    #[test]
+    fn unknown_agent_status_does_not_break_device_update_stream() {
+        let rows = parse_supported_statuses(serde_json::json!([
+            {
+                "harness": "codex",
+                "installedVersion": "1.0",
+                "latestVersion": "2.0",
+                "source": "unknown",
+                "policy": "notify",
+                "phase": "available",
+                "canApply": true
+            },
+            { "harness": "muse", "phase": "available" }
+        ]))
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].harness, HarnessId::Codex);
     }
 
     #[test]
