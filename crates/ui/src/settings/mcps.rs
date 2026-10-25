@@ -96,6 +96,12 @@ impl McpsPage {
                 cx.notify();
                 return;
             }
+            if server.name.eq_ignore_ascii_case("zeron") {
+                self.error = Some("The name 'zeron' is reserved for Zeron's built-in MCP server.".into());
+                self.saved = None;
+                cx.notify();
+                return;
+            }
             if !names.insert(server.name.to_ascii_lowercase()) {
                 self.error = Some(format!("The server name '{}' is duplicated.", server.name));
                 self.saved = None;
