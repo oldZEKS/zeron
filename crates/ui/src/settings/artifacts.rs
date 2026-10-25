@@ -18,6 +18,7 @@ use crate::theme::Theme;
 pub struct ArtifactsPage {
     state: Entity<AppState>,
     target: Option<WorkspaceTarget>,
+    target_device_id: Option<String>,
     directory: String,
     entries: Vec<WorkspaceEntry>,
     preview_path: Option<String>,
@@ -31,25 +32,33 @@ pub struct ArtifactsPage {
 
 impl ArtifactsPage {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
-        let target = {
-            let state = state.read(cx);
-            if let Some(chat_id) = state.selected_chat.clone() {
-                Some(WorkspaceTarget {
+        let (target, target_device_id) = {
+            let state_ref = state.read(cx);
+            let local_device_id = state_ref.local_device_id.clone();
+            if let Some(chat_id) = state_ref.selected_chat.clone() {
+                let device = state_ref.selected_chat_row().map(|chat| chat.device_id.clone());
+                let target_device = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
+                (Some(WorkspaceTarget {
                     chat_id: Some(chat_id),
                     space_id: None,
                     checkout_path: None,
-                })
-            } else {
-                state.selected_space_row().map(|space| WorkspaceTarget {
+                }), target_device)
+            } else if let Some(space) = state_ref.selected_space_row() {
+                let target_device = (local_device_id.as_deref() != Some(space.device_id.as_str()))
+                    .then(|| space.device_id.clone());
+                (Some(WorkspaceTarget {
                     chat_id: None,
                     space_id: Some(space.id.clone()),
                     checkout_path: None,
-                })
+                }), target_device)
+            } else {
+                (None, None)
             }
         };
         let mut page = Self {
             state,
             target,
+            target_device_id,
             directory: String::new(),
             entries: Vec::new(),
             preview_path: None,
@@ -77,20 +86,27 @@ impl ArtifactsPage {
         };
         // Settings can stay open while the selected chat/project changes.
         // Re-resolve the target on every refresh so the page follows that choice.
-        self.target = {
+        (self.target, self.target_device_id) = {
             let state = self.state.read(cx);
+            let local_device_id = state.local_device_id.clone();
             if let Some(chat_id) = state.selected_chat.clone() {
-                Some(WorkspaceTarget {
+                let device = state.selected_chat_row().map(|chat| chat.device_id.clone());
+                let target_device = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
+                (Some(WorkspaceTarget {
                     chat_id: Some(chat_id),
                     space_id: None,
                     checkout_path: None,
-                })
-            } else {
-                state.selected_space_row().map(|space| WorkspaceTarget {
+                }), target_device)
+            } else if let Some(space) = state.selected_space_row() {
+                let target_device = (local_device_id.as_deref() != Some(space.device_id.as_str()))
+                    .then(|| space.device_id.clone());
+                (Some(WorkspaceTarget {
                     chat_id: None,
                     space_id: Some(space.id.clone()),
                     checkout_path: None,
-                })
+                }), target_device)
+            } else {
+                (None, None)
             }
         };
         let Some(target) = self.target.clone() else {
@@ -103,6 +119,9 @@ impl ArtifactsPage {
         let mut params = Self::request_target(&target);
         params["directory"] = serde_json::Value::String(directory.clone());
         params["includeIgnored"] = serde_json::Value::Bool(false);
+        if let Some(target) = &self.target_device_id {
+            params["targetDeviceId"] = serde_json::Value::String(target.clone());
+        }
         self.loading = true;
         self.error = None;
         self.task = Some(cx.spawn(async move |this, cx| {
@@ -165,6 +184,9 @@ impl ArtifactsPage {
         self.preview_notice = Some("Loading preview…".into());
         let mut params = Self::request_target(&target);
         params["path"] = serde_json::Value::String(path.clone());
+        if let Some(target) = &self.target_device_id {
+            params["targetDeviceId"] = serde_json::Value::String(target.clone());
+        }
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = engine
                 .client()
