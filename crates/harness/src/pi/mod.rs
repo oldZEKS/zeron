@@ -116,7 +116,7 @@ impl PiHarness {
         &self,
         cwd: &Path,
         args: &[String],
-        mcp: Option<&zeron_proto::McpServer>,
+        mcp_servers: &[zeron_proto::McpServer],
         run_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Process, HarnessError> {
         let exe = self.resolve_executable()?;
@@ -144,9 +144,11 @@ impl PiHarness {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let scratch = mcp
-            .map(|config| self::mcp::configure(&mut cmd, config))
-            .transpose()?;
+        let scratch = if mcp_servers.is_empty() {
+            None
+        } else {
+            Some(self::mcp::configure(&mut cmd, mcp_servers)?)
+        };
         let mut child = Child::new(cmd.spawn()?);
         let tail = crate::StderrTail::default();
         let mut lines = BufReader::new(child.stderr.take().expect("piped stderr")).lines();
@@ -365,10 +367,14 @@ impl Harness for PiHarness {
         if lost_context.is_some() {
             request.resume = None;
         }
+        let mut mcp_servers = request.mcp_servers.clone();
+        if let Some(mcp) = &request.mcp {
+            mcp_servers.push(mcp.clone());
+        }
         let process = self.spawn(
             Path::new(&request.cwd),
             &args,
-            request.mcp.as_ref(),
+            &mcp_servers,
             &request.env,
         )?;
         let (tx, rx) = mpsc::channel(256);
