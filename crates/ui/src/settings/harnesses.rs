@@ -518,7 +518,6 @@ impl HarnessesPage {
         } else {
             UPDATE_POLICIES.len()
         };
-        let closed = widgets::SelectState::default();
         let selector = widgets::select(
             "all-agent-update-policy",
             "All agents",
