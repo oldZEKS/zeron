@@ -572,3 +572,81 @@ fn missing_and_broken_assets_fail_the_check_with_their_names() {
         error.message
     );
 }
+
+#[test]
+fn status_progress_and_diff_helpers_render_as_native_compositions() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.column { gap = 12,
+            ui.status {
+              label = "Connected",
+              detail = "Synced to this device",
+              tone = "success",
+            },
+            ui.progress {
+              label = "Build",
+              value = 75,
+              max = 100,
+              tone = "success",
+            },
+            ui.diff {
+              file = "src/app.rs",
+              language = "rust",
+              removed = { "let retries = 0;" },
+              added = { "let retries = 1;" },
+            },
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let tree = visual.render().unwrap();
+    assert!(text_of(&tree).contains("Connected"));
+    assert!(text_of(&tree).contains("75%"));
+    assert!(text_of(&tree).contains("let retries = 0;"));
+    assert!(text_of(&tree).contains("let retries = 1;"));
+
+    let NodeKind::Stack(root) = &tree.kind else {
+        panic!("expected root column");
+    };
+    assert_eq!(root.children.len(), 3);
+    let NodeKind::Stack(status) = &root.children[0].kind else {
+        panic!("expected status to expand to a native row");
+    };
+    assert_eq!(status.axis, Axis::Horizontal);
+
+    let NodeKind::Stack(progress) = &root.children[1].kind else {
+        panic!("expected progress to expand to a native column");
+    };
+    assert_eq!(progress.axis, Axis::Vertical);
+    assert_eq!(progress.children.len(), 2);
+
+    let NodeKind::Card { title, children, .. } = &root.children[2].kind else {
+        panic!("expected diff to render in a native card");
+    };
+    assert_eq!(title.as_deref(), Some("src/app.rs"));
+    assert_eq!(children.len(), 2);
+}
+
+#[test]
+fn progress_component_rejects_an_invalid_range() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.progress { label = "Invalid", value = 1, min = 10, max = 0 }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let error = visual.render().unwrap_err();
+    assert!(
+        error.message.contains("max greater than min"),
+        "{}",
+        error.message
+    );
+}
+
