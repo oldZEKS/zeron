@@ -29,6 +29,24 @@ use zeron_proto::{
 };
 use zeron_rpc::methods;
 
+/// Decode the shared harness catalog while ignoring providers this build does not know.
+/// A newer engine can advertise additional harness IDs; those rows must not make
+/// the entire composer/model picker fail to load.
+fn parse_supported_harness_descriptors(
+    value: serde_json::Value,
+) -> Result<Vec<HarnessDescriptor>, serde_json::Error> {
+    let rows = serde_json::from_value::<Vec<serde_json::Value>>(value)?;
+    let supported = rows
+        .into_iter()
+        .filter(|row| {
+            row.get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|slug| HarnessId::from_slug(slug).is_some())
+        })
+        .collect::<Vec<_>>();
+    serde_json::from_value(serde_json::Value::Array(supported))
+}
+
 /// Display cap for the ref list (t3code shows pages of 100 with a status
 /// footer; a flat cap + "Showing X of Y refs" reads the same without
 /// pagination plumbing).
@@ -1767,7 +1785,7 @@ impl Pickers {
                 pickers.harnesses_revalidating = false;
                 pickers.catalog_rev += 1;
                 pickers.harnesses = match result {
-                    Ok(value) => match serde_json::from_value::<Vec<HarnessDescriptor>>(value) {
+                    Ok(value) => match parse_supported_harness_descriptors(value) {
                         Ok(list) => Loadable::Ready(list),
                         Err(err) => Loadable::Error(err.to_string()),
                     },
@@ -6784,6 +6802,24 @@ impl Render for Pickers {
 mod tests {
     use super::*;
     use zeron_proto::{FolderEntry, Model, ModelOption, ModelOptionChoice};
+
+    #[test]
+    fn unknown_harness_does_not_break_composer_catalog() {
+        let descriptors = super::parse_supported_harness_descriptors(serde_json::json!([
+            {
+                "id": "codex",
+                "name": "Codex",
+                "supportsSteering": true,
+                "steeringMode": "step-boundary",
+                "reasoningLevels": []
+            },
+            { "id": "muse", "name": "Unsupported provider from newer engine" }
+        ]))
+        .unwrap();
+
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].id, HarnessId::Codex);
+    }
 
     struct ModelShortcutHost {
         focus_sub: Option<gpui::Subscription>,
