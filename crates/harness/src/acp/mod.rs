@@ -2546,8 +2546,9 @@ fn initialize_params(harness: HarnessId) -> Value {
 /// server as name/command/args plus `[{name, value}]` env pairs. Empty when
 /// the host injected nothing — the user's own servers come from the agent's
 /// config, never from here.
-fn acp_mcp_servers(mcp: Option<&zeron_proto::McpServer>) -> Vec<Value> {
-    mcp.into_iter()
+fn acp_mcp_servers(servers: &[zeron_proto::McpServer]) -> Vec<Value> {
+    servers
+        .iter()
         .map(|mcp| {
             json!({
                 "name": mcp.name,
@@ -3755,6 +3756,13 @@ async fn run_session(session: Session) {
         effort_values,
     };
 
+    // Native MCP servers are a per-run overlay. Keep the built-in Zeron
+    // server alongside user-configured servers without modifying agent config.
+    let mut configured_mcp_servers = request.mcp_servers.clone();
+    if let Some(mcp) = &request.mcp {
+        configured_mcp_servers.push(mcp.clone());
+    }
+
     // ---- handshake + session (interruptible) ------------------------------
     let setup = async {
         let init = client
@@ -3765,7 +3773,7 @@ async fn run_session(session: Session) {
 
         let session_params = json!({
             "cwd": request.cwd,
-            "mcpServers": acp_mcp_servers(request.mcp.as_ref()),
+            "mcpServers": acp_mcp_servers(&configured_mcp_servers),
         });
         let (session_id, session_response) = if let Some(resume) = &request.resume {
             let mut load = session_params.clone();
@@ -6392,7 +6400,7 @@ mod mcp_injection_tests {
 
     #[test]
     fn acp_mcp_servers_spell_env_as_name_value_pairs_and_default_empty() {
-        assert!(acp_mcp_servers(None).is_empty());
+        assert!(acp_mcp_servers(&[]).is_empty());
         let mcp = zeron_proto::McpServer {
             name: "zeron".into(),
             command: "/opt/zeron/zeron".into(),
@@ -6401,7 +6409,7 @@ mod mcp_injection_tests {
                 .into_iter()
                 .collect(),
         };
-        let servers = acp_mcp_servers(Some(&mcp));
+        let servers = acp_mcp_servers(std::slice::from_ref(&mcp));
         assert_eq!(
             servers,
             vec![json!({
