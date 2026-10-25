@@ -60,6 +60,7 @@ pub enum ShortcutsEvent {
 pub struct ShortcutsPage {
     appshots_page: bool,
     general_page: bool,
+    info_page: bool,
     appshots_focus_pending: bool,
     scroll: crate::settings::widgets::PageScroll,
     /// Working copy (kept in sync with the shell via change events).
@@ -106,6 +107,7 @@ impl ShortcutsPage {
         Self {
             appshots_page: false,
             general_page: false,
+            info_page: false,
             appshots_focus_pending: false,
             scroll: crate::settings::widgets::PageScroll::default(),
             keymap,
@@ -135,15 +137,16 @@ impl ShortcutsPage {
     }
 
     pub fn show_appshots(&mut self, appshots: bool) {
-        self.show_section(appshots, false);
+        self.show_section(appshots, false, false);
     }
 
-    pub fn show_section(&mut self, appshots: bool, general: bool) {
-        if self.appshots_page != appshots || self.general_page != general {
+    pub fn show_section(&mut self, appshots: bool, general: bool, info: bool) {
+        if self.appshots_page != appshots || self.general_page != general || self.info_page != info {
             self.stop_recording();
             self.conflict_notice = None;
             self.appshots_page = appshots;
             self.general_page = general;
+            self.info_page = info;
             self.appshots_focus_pending = appshots;
             // One scroll state serves these pages — rewind it so each opens
             // at the top instead of where the other was left.
@@ -1005,8 +1008,7 @@ impl Render for ShortcutsPage {
                                             .child(send_behavior_row)
                                             .child(compact_mode_row)
                                             .child(compact_model_picker_row)
-                                            .child(escape_behavior_row)
-                                            .children(app_auto_update_row),
+                                            .child(escape_behavior_row),
                                     )
                                     .child(widgets::section(
                                         &theme,
@@ -1255,7 +1257,7 @@ mod tests {
                 AppshotDestination::Automatic,
                 cx,
             );
-            page.show_section(false, true);
+            page.show_section(false, true, false);
             page
         });
         cx.update(|window, cx| window.draw(cx).clear());
@@ -1282,7 +1284,7 @@ mod tests {
         page.update(cx, |page, _| {
             assert_eq!(page.composer_send_behavior, ComposerSendBehavior::ModEnter);
             assert!(page.escape_stops_active_agent);
-            page.show_section(false, false);
+            page.show_section(false, false, false);
         });
         cx.update(|window, cx| window.draw(cx).clear());
         assert!(cx.debug_bounds("composer-send-behavior").is_none());
