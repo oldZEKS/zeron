@@ -151,7 +151,7 @@ impl Render for McpsPage {
             .rounded(px(10.0))
             .border_1()
             .border_color(theme.border)
-            .bg(theme.input_bg)
+            .bg(theme.input_glass_bg())
             .p(px(12.0))
             .child(editor);
 
@@ -227,13 +227,13 @@ impl Render for McpsPage {
                                         .children(self.error.as_ref().map(|message| {
                                             div()
                                                 .mt(px(10.0))
-                                                .text_color(theme.danger)
+                                                .text_color(theme.danger_muted)
                                                 .child(SharedString::from(message.clone()))
                                         }))
                                         .children(self.saved.as_ref().map(|message| {
                                             div()
                                                 .mt(px(10.0))
-                                                .text_color(theme.success)
+                                                .text_color(theme.text_muted)
                                                 .child(SharedString::from(message.clone()))
                                         })),
                                 ))
