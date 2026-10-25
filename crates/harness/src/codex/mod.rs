@@ -113,13 +113,18 @@ fn plain_executable(path: PathBuf) -> PathBuf {
 
 /// Dotted `thread/start` config overrides that add an injected MCP server
 /// to the user's `mcp_servers` table.
-fn codex_mcp_overrides(mcp: &zeron_proto::McpServer) -> Vec<(String, Value)> {
-    let key = |field: &str| format!("mcp_servers.{}.{field}", mcp.name);
-    vec![
-        (key("command"), mcp.command.clone().into()),
-        (key("args"), json!(mcp.args)),
-        (key("env"), json!(mcp.env)),
-    ]
+fn codex_mcp_overrides(servers: &[zeron_proto::McpServer]) -> Vec<(String, Value)> {
+    servers
+        .iter()
+        .flat_map(|mcp| {
+            let key = |field: &str| format!("mcp_servers.{}.{field}", mcp.name);
+            vec![
+                (key("command"), mcp.command.clone().into()),
+                (key("args"), json!(mcp.args)),
+                (key("env"), json!(mcp.env)),
+            ]
+        })
+        .collect()
 }
 
 /// A ready-to-spawn `codex login` command for the engine's account flow.
@@ -1142,16 +1147,21 @@ async fn run_session(session: Session) {
             );
         }
         p.insert("cwd".into(), Value::String(request.cwd.clone()));
-        if let Some(mcp) = request.mcp.as_ref().filter(|_| !title_only) {
-            // Zeron's own MCP server as dotted config overrides on top of the
-            // user's `mcp_servers` table (the same layer the title run uses
-            // to switch servers off).
-            let overrides = p
-                .entry("config")
-                .or_insert_with(|| json!({}))
-                .as_object_mut()
-                .expect("thread/start config overrides are an object");
-            overrides.extend(codex_mcp_overrides(mcp));
+        if !title_only {
+            let mut mcp_servers = request.mcp_servers.clone();
+            if let Some(mcp) = &request.mcp {
+                mcp_servers.push(mcp.clone());
+            }
+            if !mcp_servers.is_empty() {
+                // Configured MCPs and Zeron's delegation server are added as
+                // dotted overrides, preserving the user's existing table.
+                let overrides = p
+                    .entry("config")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .expect("thread/start config overrides are an object");
+                overrides.extend(codex_mcp_overrides(&mcp_servers));
+            }
         }
         p.insert("approvalPolicy".into(), approval_policy.into());
         p.insert("sandbox".into(), sandbox_mode(request.sandbox).into());
@@ -2491,7 +2501,7 @@ mod mcp_injection_tests {
                 .collect(),
         };
         let overrides: serde_json::Map<String, Value> =
-            codex_mcp_overrides(&mcp).into_iter().collect();
+            codex_mcp_overrides(std::slice::from_ref(&mcp)).into_iter().collect();
         assert_eq!(overrides["mcp_servers.zeron.command"], "/opt/zeron/zeron");
         assert_eq!(overrides["mcp_servers.zeron.args"], json!(["mcp"]));
         assert_eq!(
