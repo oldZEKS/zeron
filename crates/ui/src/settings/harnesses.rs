@@ -108,6 +108,45 @@ fn install_label(name: &str) -> String {
     format!("Installing {name}…")
 }
 
+/// Decode update rows from another device without letting a newer, unknown
+/// harness hide statuses for providers this build understands.
+fn parse_harness_update_statuses(
+    value: serde_json::Value,
+) -> Result<(Vec<HarnessUpdateStatus>, Vec<String>), String> {
+    let rows = value
+        .as_array()
+        .ok_or_else(|| "expected an array of agent update statuses".to_string())?;
+    let mut statuses = Vec::with_capacity(rows.len());
+    let mut unsupported = Vec::new();
+
+    for row in rows {
+        let Some(slug) = row
+            .get("harness")
+            .and_then(serde_json::Value::as_str)
+        else {
+            statuses.push(
+                serde_json::from_value::<HarnessUpdateStatus>(row.clone())
+                    .map_err(|error| error.to_string())?,
+            );
+            continue;
+        };
+
+        if HarnessId::from_slug(slug).is_none() {
+            if !unsupported.iter().any(|known| known == slug) {
+                unsupported.push(slug.to_string());
+            }
+            continue;
+        }
+
+        statuses.push(
+            serde_json::from_value::<HarnessUpdateStatus>(row.clone())
+                .map_err(|error| error.to_string())?,
+        );
+    }
+
+    Ok((statuses, unsupported))
+}
+
 fn install_params(harness: HarnessId, target: &Option<String>) -> serde_json::Value {
     serde_json::json!({"harness": harness, "targetDeviceId": target})
 }
@@ -189,6 +228,9 @@ pub struct HarnessesPage {
     scroll: widgets::PageScroll,
     harnesses: Loadable<Vec<HarnessDescriptor>>,
     updates: Loadable<Vec<HarnessUpdateStatus>>,
+    /// Agent update rows from providers newer than this build cannot be acted
+    /// on, but they should not block updates for the providers we do know.
+    skipped_update_harnesses: Vec<String>,
     /// Which device's harnesses are shown/edited; `None` = this device (no
     /// passthrough). Retargeted by the page-header device switcher.
     target_device: Option<String>,
@@ -233,6 +275,7 @@ impl HarnessesPage {
             scroll: widgets::PageScroll::default(),
             harnesses: Loadable::Idle,
             updates: Loadable::Idle,
+            skipped_update_harnesses: Vec::new(),
             target_device: None,
             device_select: widgets::SelectState::default(),
             policy_selects: Default::default(),
@@ -565,6 +608,7 @@ impl HarnessesPage {
         let painted = matches!(self.harnesses, Loadable::Ready(_))
             .then(|| std::mem::replace(&mut self.harnesses, Loadable::Idle));
         self.updates = Loadable::Idle;
+        self.skipped_update_harnesses.clear();
         self.update_task = None;
         self.update_action_task = None;
         self.load(cx);
@@ -586,6 +630,7 @@ impl HarnessesPage {
         let supports_updates = self.supports_updates(cx);
 
         self.harnesses = Loadable::Loading;
+        self.skipped_update_harnesses.clear();
         self.updates = if supports_updates {
             Loadable::Loading
         } else {
@@ -604,14 +649,18 @@ impl HarnessesPage {
                         Ok(mut stream) => {
                             while let Some(value) = stream.recv().await {
                                 retry = 1;
-                                let parsed =
-                                    serde_json::from_value::<Vec<HarnessUpdateStatus>>(value)
-                                        .map_err(|error| error.to_string());
+                                let parsed = parse_harness_update_statuses(value);
                                 if this
                                     .update(cx, |page, cx| {
                                         page.updates = match parsed {
-                                            Ok(statuses) => Loadable::Ready(statuses),
-                                            Err(error) => Loadable::Error(error),
+                                            Ok((statuses, unsupported)) => {
+                                                page.skipped_update_harnesses = unsupported;
+                                                Loadable::Ready(statuses)
+                                            }
+                                            Err(error) => {
+                                                page.skipped_update_harnesses.clear();
+                                                Loadable::Error(error)
+                                            }
                                         };
                                         cx.notify();
                                     })
@@ -623,6 +672,7 @@ impl HarnessesPage {
                         }
                         Err(error) => {
                             this.update(cx, |page, cx| {
+                                page.skipped_update_harnesses.clear();
                                 page.updates = Loadable::Error(error.to_string());
                                 cx.notify();
                             })
@@ -821,9 +871,15 @@ impl HarnessesPage {
             this.update(cx, |page, cx| {
                 page.checking_updates = false;
                 match result {
-                    Ok(value) => match serde_json::from_value::<Vec<HarnessUpdateStatus>>(value) {
-                        Ok(statuses) => page.updates = Loadable::Ready(statuses),
-                        Err(error) => page.error = Some(error.to_string()),
+                    Ok(value) => match parse_harness_update_statuses(value) {
+                        Ok((statuses, unsupported)) => {
+                            page.updates = Loadable::Ready(statuses);
+                            page.skipped_update_harnesses = unsupported;
+                        }
+                        Err(error) => {
+                            page.skipped_update_harnesses.clear();
+                            page.error = Some(error);
+                        }
                     },
                     Err(error) => page.error = Some(error.to_string()),
                 }
@@ -1470,6 +1526,20 @@ impl Render for HarnessesPage {
                 .children(scrollbar)
                 .into_any_element();
         }
+        let update_warning = (!self.skipped_update_harnesses.is_empty()).then(|| {
+            let names = self.skipped_update_harnesses.join(", ");
+            let agent_word = if self.skipped_update_harnesses.len() == 1 {
+                "agent"
+            } else {
+                "agents"
+            };
+            div()
+                .text_color(theme.text_muted)
+                .child(format!(
+                    "Skipped update statuses for unsupported {agent_word}: {names}. This build can’t manage those agents."
+                ))
+                .into_any_element()
+        });
         let update_error = match &self.updates {
             Loadable::Error(message) => Some(
                 div()
@@ -1521,6 +1591,7 @@ impl Render for HarnessesPage {
                                         .child(widgets::page_header(&theme, "Providers", None))
                                         .child(toolbar),
                                 )
+                                .children(update_warning)
                                 .children(update_error)
                                 .child(body),
                         ),
@@ -1534,6 +1605,30 @@ impl Render for HarnessesPage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unknown_update_harnesses_do_not_hide_supported_statuses() {
+        let (statuses, unsupported) = super::parse_harness_update_statuses(
+            serde_json::json!([
+                { "harness": "codex", "phase": "current" },
+                { "harness": "muse", "phase": "current" },
+                { "harness": "muse", "phase": "failed" }
+            ]),
+        )
+        .unwrap();
+
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].harness, zeron_proto::HarnessId::Codex);
+        assert_eq!(unsupported, vec!["muse"]);
+    }
+
+    #[test]
+    fn malformed_supported_update_status_is_still_reported() {
+        let result = super::parse_harness_update_statuses(
+            serde_json::json!([{ "harness": "codex" }]),
+        );
+        assert!(result.is_err());
+    }
+
     /// A failed run's "Log in" waits for the rows, then opens that agent's
     /// Accounts section (where its sign-in starts).
     #[gpui::test]
