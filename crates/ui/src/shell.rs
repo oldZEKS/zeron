@@ -48,6 +48,7 @@ use crate::settings::cloud::CloudPage;
 use crate::settings::devices::DevicesPage;
 use crate::settings::files::{FilesSettingsEvent, FilesSettingsPage};
 use crate::settings::harnesses::HarnessesPage;
+use crate::settings::mcps::McpsPage;
 use crate::settings::notifications::{NotificationsEvent, NotificationsPage};
 use crate::settings::shortcuts::{ShortcutsEvent, ShortcutsPage};
 use crate::settings::{
@@ -2141,6 +2142,7 @@ pub struct Shell {
     archived_page: Option<Entity<ArchivedPage>>,
     appearance_page: Option<Entity<AppearancePage>>,
     files_settings_page: Option<Entity<FilesSettingsPage>>,
+    mcps_page: Option<Entity<McpsPage>>,
     notifications_page: Option<Entity<NotificationsPage>>,
     shortcuts_page: Option<Entity<ShortcutsPage>>,
     accounts_page: Option<Entity<AccountsPage>>,
@@ -2687,6 +2689,7 @@ impl Shell {
             archived_page: None,
             appearance_page: None,
             files_settings_page: None,
+            mcps_page: None,
             notifications_page: None,
             shortcuts_page: None,
             accounts_page: None,
@@ -5834,6 +5837,15 @@ impl Shell {
                     None => Empty.into_any_element(),
                 }
             }
+            SettingsSection::McpServers => {
+                if self.mcps_page.is_none() {
+                    self.mcps_page = Some(cx.new(|cx| McpsPage::new(cx)));
+                }
+                match &self.mcps_page {
+                    Some(page) => page.clone().into_any_element(),
+                    None => Empty.into_any_element(),
+                }
+            }
             SettingsSection::Notifications => {
                 if self.notifications_page.is_none() {
                     let page = cx.new(|cx| {
@@ -5911,7 +5923,7 @@ impl Shell {
                 }
                 card.into_any_element()
             }
-            SettingsSection::Shortcuts | SettingsSection::General | SettingsSection::Appshots => {
+            SettingsSection::Shortcuts | SettingsSection::General | SettingsSection::Info | SettingsSection::Appshots => {
                 if self.shortcuts_page.is_none() {
                     let state = self.state.clone();
                     let keymap = self.settings.keymap.clone();
@@ -5975,6 +5987,7 @@ impl Shell {
                             page.show_section(
                                 section == SettingsSection::Appshots,
                                 section == SettingsSection::General,
+                                section == SettingsSection::Info,
                             )
                         });
                         page.clone().into_any_element()
