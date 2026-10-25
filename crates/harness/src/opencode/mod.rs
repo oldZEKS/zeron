@@ -701,7 +701,7 @@ impl Server {
                 }
                 None => tracing::warn!(
                     binary_path = %exe.display(),
-                    "opencode version unknown; starting without the Zeron MCP server"
+                    "opencode version unknown; starting without MCP injection"
                 ),
             }
         }
