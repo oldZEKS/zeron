@@ -675,7 +675,7 @@ impl HarnessesPage {
                                     .update(cx, |page, cx| {
                                         page.updates = match parsed {
                                             Ok((statuses, unsupported)) => {
-                                                page.skipped_harnesses = unsupported;
+                                                page.merge_skipped_harnesses(unsupported);
                                                 Loadable::Ready(statuses)
                                             }
                                             Err(error) => Loadable::Error(error)
@@ -893,7 +893,7 @@ impl HarnessesPage {
                     Ok(value) => match parse_harness_update_statuses(value) {
                         Ok((statuses, unsupported)) => {
                             page.updates = Loadable::Ready(statuses);
-                            page.skipped_harnesses = unsupported;
+                            page.merge_skipped_harnesses(unsupported);
                         }
                         Err(error) => {
                             page.error = Some(error);
