@@ -941,6 +941,68 @@ impl Render for ShortcutsPage {
                     this.set_escape_stops_active_agent(!escape_stops_active_agent, cx);
                 })),
             );
+        if self.info_page {
+            let update_supported = app_update_state
+                .as_ref()
+                .is_some_and(|(_, _, supported)| *supported);
+            let version_row = widgets::card_row(&theme, true)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(widgets::row_title(&theme, "Zeron"))
+                        .child(widgets::meta_line(
+                            &theme,
+                            vec![
+                                div()
+                                    .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                                    .into_any_element(),
+                            ],
+                        )),
+                );
+            let update_note = if update_supported {
+                "Automatic app updates download in the background and are staged for install on quit."
+            } else {
+                "This source or unmanaged build cannot install app updates itself. The preference is saved, and manual update actions remain available where supported."
+            };
+            return div()
+                .id("info-settings-page-host")
+                .relative()
+                .size_full()
+                .child(
+                    crate::edge_fade::edge_faded(
+                        16.0,
+                        true,
+                        true,
+                        div()
+                            .id("info-settings-page")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll.scroll)
+                            .child(
+                                widgets::page_column()
+                                    .child(widgets::page_header(&theme, "Info", None))
+                                    .child(
+                                        widgets::section_card(&theme)
+                                            .child(version_row)
+                                            .children(app_auto_update_row),
+                                    )
+                                    .child(widgets::section(
+                                        &theme,
+                                        "About automatic updates",
+                                        widgets::section_card(&theme)
+                                            .mt_0()
+                                            .child(widgets::meta_line(
+                                                &theme,
+                                                vec![div().child(update_note).into_any_element()],
+                                            )),
+                                    )),
+                            ),
+                    )
+                    .fade_overflow_y(&self.scroll.scroll),
+                )
+                .into_any_element();
+        }
         if self.general_page {
             let pull_request_destination = crate::settings::current(cx).pull_request_destination;
             let pull_request_destination_control = widgets::select(
