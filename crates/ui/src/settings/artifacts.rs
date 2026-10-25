@@ -6,8 +6,8 @@
 use gpui::{Context, Entity, Render, SharedString, Task, Window, div, prelude::*, px};
 
 use zeron_proto::{
-    ListWorkspaceDirectoryRequest, ReadWorkspaceFileRequest, WorkspaceDirectoryPage,
-    WorkspaceEntry, WorkspaceEntryKind, WorkspaceFileText, WorkspaceTarget, WorkspaceTextEncoding,
+    WorkspaceDirectoryPage, WorkspaceEntry, WorkspaceEntryKind, WorkspaceFileText,
+    WorkspaceTarget, WorkspaceTextEncoding,
 };
 use zeron_rpc::methods;
 
@@ -74,6 +74,24 @@ impl ArtifactsPage {
             self.loading = false;
             cx.notify();
             return;
+        };
+        // Settings can stay open while the selected chat/project changes.
+        // Re-resolve the target on every refresh so the page follows that choice.
+        self.target = {
+            let state = self.state.read(cx);
+            if let Some(chat_id) = state.selected_chat.clone() {
+                Some(WorkspaceTarget {
+                    chat_id: Some(chat_id),
+                    space_id: None,
+                    checkout_path: None,
+                })
+            } else {
+                state.selected_space_row().map(|space| WorkspaceTarget {
+                    chat_id: None,
+                    space_id: Some(space.id.clone()),
+                    checkout_path: None,
+                })
+            }
         };
         let Some(target) = self.target.clone() else {
             self.error = Some("Select a project or chat in the main window first. Artifacts are shown from that workspace; this page does not search your whole computer.".into());
