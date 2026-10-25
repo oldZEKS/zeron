@@ -61,7 +61,7 @@ impl SkillsPage {
             let local_device_id = state.local_device_id.clone();
             if let Some(chat_id) = state.selected_chat.clone() {
                 let device = state.selected_chat_row().map(|chat| chat.device_id.clone());
-                let target = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
+                let target = device.filter(|id| local_device_id.as_deref().is_some_and(|local| local != id.as_str()));
                 (Some(chat_id), None, target)
             } else if let Some(space) = state.selected_space_row() {
                 let target = (local_device_id.as_deref() != Some(space.device_id.as_str()))
