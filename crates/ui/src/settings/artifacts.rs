@@ -269,7 +269,7 @@ impl Render for ArtifactsPage {
                 "Preview",
                 widgets::section_card(&theme)
                     .mt_0()
-                    .child(widgets::row_title(&theme, path))
+                    .child(widgets::row_title(&theme, path.clone()))
                     .child(
                         div()
                             .mt(px(8.0))
