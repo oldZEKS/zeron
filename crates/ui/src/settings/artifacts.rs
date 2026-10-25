@@ -44,7 +44,9 @@ impl ArtifactsPage {
                     checkout_path: None,
                 }), target_device)
             } else if let Some(space) = state_ref.selected_space_row() {
-                let target_device = (local_device_id.as_deref() != Some(space.device_id.as_str()))
+                let target_device = local_device_id
+                    .as_deref()
+                    .is_some_and(|local| local != space.device_id.as_str())
                     .then(|| space.device_id.clone());
                 (Some(WorkspaceTarget {
                     chat_id: None,
@@ -98,7 +100,9 @@ impl ArtifactsPage {
                     checkout_path: None,
                 }), target_device)
             } else if let Some(space) = state.selected_space_row() {
-                let target_device = (local_device_id.as_deref() != Some(space.device_id.as_str()))
+                let target_device = local_device_id
+                    .as_deref()
+                    .is_some_and(|local| local != space.device_id.as_str())
                     .then(|| space.device_id.clone());
                 (Some(WorkspaceTarget {
                     chat_id: None,
