@@ -248,6 +248,7 @@ pub struct HarnessesPage {
     /// passthrough). Retargeted by the page-header device switcher.
     target_device: Option<String>,
     device_select: widgets::SelectState,
+    all_policy_select: widgets::SelectState,
     policy_selects: std::collections::HashMap<HarnessId, widgets::SelectState>,
     /// Last refused/failed toggle (engine guards), shown in the error strip.
     error: Option<String>,
@@ -291,6 +292,7 @@ impl HarnessesPage {
             skipped_harnesses: Vec::new(),
             target_device: None,
             device_select: widgets::SelectState::default(),
+            all_policy_select: widgets::SelectState::default(),
             policy_selects: Default::default(),
             error: None,
             load_task: None,
@@ -353,9 +355,8 @@ impl HarnessesPage {
         self.check_updates(cx);
     }
 
-    /// The page header's controls: refresh, then (when `devices`) the device
-    /// switcher — Cloud among the devices manages the accounts every Cloud
-    /// machine uses. First-run setup shows the same controls over its rows.
+    /// The page header's controls: refresh and device selection.
+    /// Global update policy is rendered as a full-width row below the heading.
     pub(crate) fn render_toolbar(
         &mut self,
         theme: &Theme,
@@ -490,6 +491,88 @@ impl HarnessesPage {
         }
     }
 
+    /// A prominent page-level control for changing the policy on every known
+    /// agent on the selected device. Individual providers retain their own
+    /// dropdowns below, so a policy can still be customized after this.
+    fn render_all_update_policy(
+        &mut self,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.targets_cloud() || !self.can_control_updates(cx) {
+            return None;
+        }
+        let Loadable::Ready(statuses) = &self.updates else {
+            return None;
+        };
+        if statuses.is_empty() {
+            return None;
+        }
+
+        let first = statuses[0].policy;
+        let selected = if statuses.iter().all(|status| status.policy == first) {
+            UPDATE_POLICIES
+                .iter()
+                .position(|(policy, _, _)| *policy == first)
+                .unwrap_or(0)
+        } else {
+            UPDATE_POLICIES.len()
+        };
+        let closed = widgets::SelectState::default();
+        let selector = widgets::select(
+            "all-agent-update-policy",
+            "All agents",
+            theme,
+            |page: &mut Self| &mut page.all_policy_select,
+        )
+        .options(
+            UPDATE_POLICIES
+                .iter()
+                .map(|(_, label, _)| widgets::SelectOption::new(*label))
+                .chain(std::iter::once(widgets::SelectOption::new("Mixed"))),
+            selected,
+        )
+        .width(148.0)
+        .on_select(|page, selected, _, cx| {
+            if let Some((policy, ..)) = UPDATE_POLICIES.get(selected) {
+                page.set_all_update_policies(*policy, cx);
+            }
+        })
+        .render(&self.all_policy_select, cx);
+
+        let description = if selected == UPDATE_POLICIES.len() {
+            "Agents currently use different update policies."
+        } else {
+            UPDATE_POLICIES[selected].2
+        };
+        Some(
+            widgets::section_card(theme)
+                .mb(px(12.0))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(px(16.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.0))
+                                .flex_1()
+                                .child(widgets::row_title(theme, "Automatic updates"))
+                                .child(widgets::meta_line(
+                                    theme,
+                                    vec![div().child(description).into_any_element()],
+                                )),
+                        )
+                        .child(selector),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The expanded provider's Updates section: the update policy, short
     /// labels in the menu and the chosen one explained under the title.
     fn render_updates_for(
@@ -611,6 +694,7 @@ impl HarnessesPage {
 
     pub(crate) fn set_target_device(&mut self, target: Option<String>, cx: &mut Context<Self>) {
         widgets::close_select(self, |page: &mut Self| &mut page.device_select, cx);
+        widgets::close_select(self, |page: &mut Self| &mut page.all_policy_select, cx);
 
         if self.target_device == target {
             cx.notify();
@@ -947,6 +1031,60 @@ impl HarnessesPage {
             this.update(cx, |page, cx| {
                 if let Err(error) = result {
                     page.error = Some(error.to_string());
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    fn set_all_update_policies(
+        &mut self,
+        policy: HarnessUpdatePolicy,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.can_control_updates(cx) || self.targets_cloud() {
+            return;
+        }
+        let harnesses = match &self.updates {
+            Loadable::Ready(statuses) => statuses.iter().map(|status| status.harness).collect::<Vec<_>>(),
+            _ => return,
+        };
+        if harnesses.is_empty() {
+            return;
+        }
+        let Some(engine) = self.state.read(cx).engine().cloned() else {
+            return;
+        };
+        let target_device = self.target_device.clone();
+        self.error = None;
+        self.update_action_task = Some(cx.spawn(async move |this, cx| {
+            let mut failures = Vec::new();
+            for harness in harnesses {
+                let mut params = serde_json::json!({
+                    "harness": harness,
+                    "policy": policy,
+                });
+                if let Some(target) = &target_device
+                    && let Some(object) = params.as_object_mut()
+                {
+                    object.insert("targetDeviceId".into(), serde_json::json!(target));
+                }
+                if let Err(error) = engine
+                    .client()
+                    .call(methods::SET_HARNESS_UPDATE_POLICY, params)
+                    .await
+                {
+                    failures.push(format!("{}: {error}", harness.as_str()));
+                }
+            }
+            this.update(cx, |page, cx| {
+                if !failures.is_empty() {
+                    page.error = Some(format!(
+                        "Could not update {} agent policies: {}",
+                        failures.len(),
+                        failures.join("; ")
+                    ));
                 }
                 cx.notify();
             })
@@ -1611,6 +1749,7 @@ impl Render for HarnessesPage {
                                 )
                                 .children(update_warning)
                                 .children(update_error)
+                                .children(self.render_all_update_policy(&theme, cx))
                                 .child(body),
                         ),
                 )
