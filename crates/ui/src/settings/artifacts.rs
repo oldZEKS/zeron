@@ -37,7 +37,7 @@ impl ArtifactsPage {
             let local_device_id = state_ref.local_device_id.clone();
             if let Some(chat_id) = state_ref.selected_chat.clone() {
                 let device = state_ref.selected_chat_row().map(|chat| chat.device_id.clone());
-                let target_device = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
+                let target_device = device.filter(|id| local_device_id.as_deref().is_some_and(|local| local != id.as_str()));
                 (Some(WorkspaceTarget {
                     chat_id: Some(chat_id),
                     space_id: None,
