@@ -4120,6 +4120,26 @@ fn spawn_deferred_engine_watch(
     }))
 }
 
+/// Decode the chat watch without letting a newer provider ID invalidate every
+/// row in the frame. Keep the chat itself, but drop only its unsupported config
+/// so the reader can choose a provider this build actually supports.
+fn parse_chats_with_supported_harnesses(
+    value: serde_json::Value,
+) -> Result<Vec<Chat>, serde_json::Error> {
+    let mut rows = serde_json::from_value::<Vec<serde_json::Value>>(value)?;
+    for row in &mut rows {
+        let unsupported_config = row
+            .get("config")
+            .and_then(|config| config.get("harness"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|slug| HarnessId::from_slug(slug).is_none());
+        if unsupported_config && let Some(object) = row.as_object_mut() {
+            object.remove("config");
+        }
+    }
+    serde_json::from_value(serde_json::Value::Array(rows))
+}
+
 /// Chats watch. Boot selection is the shell's job (it lands on the first
 /// restored open tab, device-local state this entity can't see); this task
 /// only pumps frames.
@@ -4147,7 +4167,7 @@ fn spawn_chats_watch(cx: &mut Context<AppState>, handle: EngineHandle) -> Task<(
                 }
             };
             while let Some(value) = rx.recv().await {
-                let parsed: Vec<Chat> = match serde_json::from_value(value) {
+                let parsed: Vec<Chat> = match parse_chats_with_supported_harnesses(value) {
                     Ok(parsed) => parsed,
                     Err(err) => {
                         tracing::warn!(error = %err, "dropping malformed chats frame");
@@ -4614,6 +4634,47 @@ fn spawn_subagent_watch(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unknown_chat_provider_does_not_drop_the_chat_watch_frame() {
+        let chats = super::parse_chats_with_supported_harnesses(serde_json::json!([
+            {
+                "id": "future-chat",
+                "deviceId": "device-1",
+                "archived": false,
+                "createdAt": "2026-10-26T00:00:00Z",
+                "config": {
+                    "harness": "future-agent",
+                    "model": "model-x",
+                    "reasoning": null,
+                    "modelOptions": {},
+                    "sandbox": "workspace-write"
+                }
+            },
+            {
+                "id": "known-chat",
+                "deviceId": "device-1",
+                "archived": false,
+                "createdAt": "2026-10-26T00:00:00Z",
+                "config": {
+                    "harness": "codex",
+                    "model": "gpt-5.4",
+                    "reasoning": null,
+                    "modelOptions": {},
+                    "sandbox": "workspace-write"
+                }
+            }
+        ]))
+        .unwrap();
+
+        assert_eq!(chats.len(), 2);
+        assert!(chats[0].config.is_none());
+        assert_eq!(
+            chats[1].config.as_ref().map(|config| config.harness),
+            Some(HarnessId::Codex)
+        );
+    }
+
+
     use super::*;
     use chrono::TimeDelta;
     use gpui::AppContext;
