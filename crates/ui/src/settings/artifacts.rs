@@ -88,7 +88,7 @@ impl ArtifactsPage {
         };
         // Settings can stay open while the selected chat/project changes.
         // Re-resolve the target on every refresh so the page follows that choice.
-        (self.target, self.target_device_id) = {
+        let (target, target_device_id) = {
             let state = self.state.read(cx);
             let local_device_id = state.local_device_id.clone();
             if let Some(chat_id) = state.selected_chat.clone() {
@@ -113,6 +113,8 @@ impl ArtifactsPage {
                 (None, None)
             }
         };
+        self.target = target;
+        self.target_device_id = target_device_id;
         let Some(target) = self.target.clone() else {
             self.error = Some("Select a project or chat in the main window first. Artifacts are shown from that workspace; this page does not search your whole computer.".into());
             self.loading = false;
