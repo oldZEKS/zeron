@@ -301,11 +301,21 @@ impl OpencodeHarness {
         mcp: Option<&zeron_proto::McpServer>,
         run_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Server, HarnessError> {
+        let servers = mcp.cloned().into_iter().collect::<Vec<_>>();
+        self.server_with_servers_env(cwd, &servers, run_env).await
+    }
+
+    async fn server_with_servers_env(
+        &self,
+        cwd: Option<&str>,
+        mcp_servers: &[zeron_proto::McpServer],
+        run_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Server, HarnessError> {
         if let Some(base) = &self.base_url {
             return Ok(Server::attached(base.clone()));
         }
         let exe = self.resolve_executable()?;
-        Server::spawn_with_env(&exe, cwd, self.startup_timeout, mcp, run_env).await
+        Server::spawn_with_servers_env(&exe, cwd, self.startup_timeout, mcp_servers, run_env).await
     }
 
     /// One short-lived server answers both discovery calls. Also primes the
@@ -478,8 +488,12 @@ impl Harness for OpencodeHarness {
         let initial_native_command_selected = selected_native_command(&request.prompt, self.id());
         request.prompt = zeron_proto::invocation::harness_prompt(&request.prompt, self.id());
         let cwd = (!request.cwd.is_empty()).then(|| request.cwd.clone());
+        let mut mcp_servers = request.mcp_servers.clone();
+        if let Some(mcp) = &request.mcp {
+            mcp_servers.push(mcp.clone());
+        }
         let server = self
-            .server_with_env(cwd.as_deref(), request.mcp.as_ref(), &request.env)
+            .server_with_servers_env(cwd.as_deref(), &mcp_servers, &request.env)
             .await?;
         let (event_tx, event_rx) = mpsc::channel::<Result<AgentEvent, HarnessError>>(256);
         tokio::spawn(run_session(Session {
@@ -640,6 +654,17 @@ impl Server {
         mcp: Option<&zeron_proto::McpServer>,
         run_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self, HarnessError> {
+        let servers = mcp.cloned().into_iter().collect::<Vec<_>>();
+        Self::spawn_with_servers_env(exe, cwd, startup, &servers, run_env).await
+    }
+
+    async fn spawn_with_servers_env(
+        exe: &std::path::Path,
+        cwd: Option<&str>,
+        startup: Duration,
+        mcp_servers: &[zeron_proto::McpServer],
+        run_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, HarnessError> {
         let port = free_localhost_port().ok_or_else(|| {
             HarnessError::Protocol("no free localhost port for opencode serve".into())
         })?;
@@ -655,7 +680,7 @@ impl Server {
             .env("OPENCODE_PASSWORD", &password)
             .env("OPENCODE_SERVER_PASSWORD", &password)
             .env("OPENCODE_CLIENT", "zeron");
-        if let Some(mcp) = mcp {
+        if !mcp_servers.is_empty() {
             // The config shape differs by generation. If even the cold probe
             // can't tell, run without the Zeron MCP server rather than fail.
             match opencode_version(exe).await {
@@ -667,9 +692,9 @@ impl Server {
                     };
                     cmd.env(
                         "OPENCODE_CONFIG_CONTENT",
-                        mcp_config(
+                        mcp_config_many(
                             std::env::var("OPENCODE_CONFIG_CONTENT").ok().as_deref(),
-                            mcp,
+                            mcp_servers,
                             protocol,
                         )?,
                     );
@@ -4642,6 +4667,14 @@ fn mcp_config(
     mcp: &zeron_proto::McpServer,
     protocol: Protocol,
 ) -> Result<String, HarnessError> {
+    mcp_config_many(inherited, std::slice::from_ref(mcp), protocol)
+}
+
+fn mcp_config_many(
+    inherited: Option<&str>,
+    mcp_servers: &[zeron_proto::McpServer],
+    protocol: Protocol,
+) -> Result<String, HarnessError> {
     let mut config: Value = match inherited.filter(|s| !s.trim().is_empty()) {
         Some(raw) => deser_hjson::from_str(raw).map_err(|_| {
             HarnessError::Protocol("OPENCODE_CONFIG_CONTENT must be a valid config object".into())
@@ -4666,15 +4699,17 @@ fn mcp_config(
     let servers = servers.as_object_mut().ok_or_else(|| {
         HarnessError::Protocol("OPENCODE_CONFIG_CONTENT.mcp must be an object".into())
     })?;
-    let command: Vec<&str> = std::iter::once(mcp.command.as_str())
-        .chain(mcp.args.iter().map(String::as_str))
-        .collect();
-    let mut server = json!({"type": "local", "command": command, "environment": mcp.env});
-    match protocol {
-        Protocol::V1 => server["enabled"] = json!(true),
-        Protocol::V2 => server["disabled"] = json!(false),
+    for mcp in mcp_servers {
+        let command: Vec<&str> = std::iter::once(mcp.command.as_str())
+            .chain(mcp.args.iter().map(String::as_str))
+            .collect();
+        let mut server = json!({"type": "local", "command": command, "environment": mcp.env});
+        match protocol {
+            Protocol::V1 => server["enabled"] = json!(true),
+            Protocol::V2 => server["disabled"] = json!(false),
+        }
+        servers.insert(mcp.name.clone(), server);
     }
-    servers.insert(mcp.name.clone(), server);
     Ok(config.to_string())
 }
 
