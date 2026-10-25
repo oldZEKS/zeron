@@ -6813,7 +6813,7 @@ mod tests {
                 "steeringMode": "step-boundary",
                 "reasoningLevels": []
             },
-            { "id": "muse", "name": "Unsupported provider from newer engine" }
+            { "id": "future-agent", "name": "Unsupported provider from newer engine" }
         ]))
         .unwrap();
 
