@@ -56,12 +56,19 @@ impl SkillsPage {
             cx.notify();
             return;
         };
-        let (chat_id, space_id) = {
+        let (chat_id, space_id, target_device_id) = {
             let state = self.state.read(cx);
+            let local_device_id = state.local_device_id.clone();
             if let Some(chat_id) = state.selected_chat.clone() {
-                (Some(chat_id), None)
+                let device = state.selected_chat_row().map(|chat| chat.device_id.clone());
+                let target = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
+                (Some(chat_id), None, target)
+            } else if let Some(space) = state.selected_space_row() {
+                let target = (local_device_id.as_deref() != Some(space.device_id.as_str()))
+                    .then(|| space.device_id.clone());
+                (None, Some(space.id.clone()), target)
             } else {
-                (None, state.selected_space_row().map(|space| space.id.clone()))
+                (None, None, None)
             }
         };
         self.loading = true;
@@ -76,6 +83,9 @@ impl SkillsPage {
                     params["chatId"] = serde_json::Value::String(chat_id.clone());
                 } else if let Some(space_id) = &space_id {
                     params["spaceId"] = serde_json::Value::String(space_id.clone());
+                }
+                if let Some(target) = &target_device_id {
+                    params["targetDeviceId"] = serde_json::Value::String(target.clone());
                 }
                 match engine.client().call(methods::LIST_SKILLS, params).await {
                     Ok(value) => match serde_json::from_value::<Vec<Skill>>(value) {
