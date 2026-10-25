@@ -2371,15 +2371,35 @@ async fn create_session(
         if let Some(agent) = agent {
             body["agent"] = json!(agent);
         }
-        let created = server.post_json("/api/session", dir, &body).await?;
-        return created
-            .pointer("/data/id")
-            .or_else(|| created.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| {
-                HarnessError::Protocol("opencode session create returned no id".into())
-            });
+        // Like the 1.x route, the 2.x session endpoint can return a transient
+        // 5xx while OpenCode is finishing startup under load. Retry only server
+        // errors: transport faults and client errors may not be safe to repeat.
+        for attempt in 0..2 {
+            let (status, text) = server.post_json_raw("/api/session", dir, &body).await?;
+            if status.is_success() {
+                let created = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
+                return created
+                    .pointer("/data/id")
+                    .or_else(|| created.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        HarnessError::Protocol("opencode session create returned no id".into())
+                    });
+            }
+            if attempt == 0 && status.is_server_error() {
+                tracing::debug!(
+                    target: "zeron_harness::opencode",
+                    "POST /api/session answered {status}; retrying once after startup-window failure"
+                );
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+            return Err(HarnessError::Protocol(post_error_message(
+                "/api/session", status, &text,
+            )));
+        }
+        unreachable!("create_session retry loop returns from every path")
     }
     // opencode 1.18.x lazily migrates a directory's legacy rows on its
     // FIRST directory-scoped request (`Project.migrateProjectId`). On a db

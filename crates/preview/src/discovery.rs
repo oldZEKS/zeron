@@ -25,6 +25,27 @@ impl Listener {
         self.cwd.starts_with(root)
     }
 
+    /// Rust test binaries can open one-shot HTTP listeners as fixtures. Probing
+    /// them with HEAD consumes a request that belongs to the test (and can make
+    /// otherwise deterministic tests flaky). Limit this exception to Zeron's
+    /// harness test executables and the standard libtest flags.
+    pub(crate) fn is_rust_test_harness(&self) -> bool {
+        let Some(executable) = self
+            .args
+            .first()
+            .and_then(|arg| arg.rsplit(|ch| ch == '/' || ch == '\\').next())
+        else {
+            return false;
+        };
+        let executable = executable.strip_suffix(".exe").unwrap_or(executable);
+        let is_harness = executable.starts_with("zeron_harness-")
+            || executable.starts_with("zeron-harness-");
+        is_harness
+            && self.args.iter().any(|arg| {
+                matches!(arg.as_str(), "--exact" | "--test-threads" | "--list" | "--skip")
+            })
+    }
+
     /// A login CLI may open an HTTP listener in the project's cwd, but that
     /// listener is a browser callback, not a development server. Some (such as
     /// Infisical) abort the login on an unsolicited HEAD, so exclude explicit
@@ -504,6 +525,33 @@ mod tests {
             assert!(!listener(&args).is_authentication_command(), "{args:?}");
         }
     }
+    #[test]
+    fn rust_test_harness_flags_identify_local_test_servers() {
+        let listener = |args: &[&str]| Listener {
+            pid: 1,
+            parent: 0,
+            cwd: "/project".into(),
+            args: args.iter().map(|arg| (*arg).into()).collect(),
+            started_at: 1,
+            address: "127.0.0.1:3000".parse().unwrap(),
+            zeron_owned: true,
+        };
+        assert!(listener(&[
+            "/tmp/zeron_harness-deadbeef",
+            "--exact",
+            "opencode::tests::one_shot_server",
+        ])
+        .is_rust_test_harness());
+        assert!(listener(&[
+            r"C:\\tmp\\zeron_harness-deadbeef.exe",
+            "--test-threads",
+            "1",
+        ])
+        .is_rust_test_harness());
+        assert!(!listener(&["node", "server.js", "--exact"]).is_rust_test_harness());
+        assert!(!listener(&["zeron_harness-server", "serve"]).is_rust_test_harness());
+    }
+
     #[test]
     fn service_identity_ignores_port_configuration() {
         let args = |port: &str| vec!["node".into(), "api.js".into(), "--port".into(), port.into()];

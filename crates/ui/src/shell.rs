@@ -10358,6 +10358,47 @@ impl Shell {
                 },
             }
         };
+        let (automatic, can_toggle_automatic) = {
+            let update = update.read(cx);
+            (update.automatic(), update.self_updating())
+        };
+        let automatic_row: Option<AnyElement> = if can_toggle_automatic {
+            Some(
+                div()
+                    .mt(px(14.0))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(crate::typography::ui_rems(12.0))
+                            .text_color(theme.text_muted)
+                            .child("Automatic updates"),
+                    )
+                    .child(
+                        popover::btn_ghost(
+                            &theme,
+                            if automatic { "On" } else { "Off" },
+                            "update-prompt-auto-update",
+                        )
+                        .id("update-prompt-auto-update")
+                        .aria_label(if automatic {
+                            "Turn automatic updates off"
+                        } else {
+                            "Turn automatic updates on"
+                        })
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            if let Some(update) = crate::app_update::AppUpdate::global(cx) {
+                                update.update(cx, |update, cx| update.toggle_automatic(cx));
+                            }
+                        })),
+                    )
+                    .into_any_element(),
+            )
+        } else {
+            None
+        };
         let mut row = div()
             .mt(px(16.0))
             .flex()
@@ -10416,6 +10457,7 @@ impl Shell {
         let card = popover::dialog_card(&theme)
             .child(popover::dialog_title(&theme, &title))
             .child(div().mt(px(6.0)).child(popover::dialog_body(&theme, body)))
+            .when_some(automatic_row, |card, setting| card.child(setting))
             .child(row)
             .into_any_element();
         Some(popover::modal("update-prompt-dialog", viewport, card))

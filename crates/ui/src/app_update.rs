@@ -125,7 +125,8 @@ impl AppUpdate {
         Self {
             install,
             blocker,
-            automatic: zeron_update::desktop_auto_update_enabled(),
+            automatic: load_auto_update_preference(&data_dir)
+                .unwrap_or_else(zeron_update::desktop_auto_update_enabled),
             edge_url,
             data_dir,
             checker,
@@ -166,6 +167,25 @@ impl AppUpdate {
     /// Whether this app downloads and installs updates itself right now.
     pub fn self_updating(&self) -> bool {
         self.install.supports_desktop_update() && self.blocker.is_none()
+    }
+
+    /// Whether automatic background downloads and install-on-quit are enabled.
+    pub fn automatic(&self) -> bool {
+        self.automatic
+    }
+
+    /// Toggle automatic updates and persist the user's choice across restarts.
+    /// Disabling automatic updates never blocks a manually requested update.
+    pub fn toggle_automatic(&mut self, cx: &mut Context<Self>) {
+        self.automatic = !self.automatic;
+        if let Err(error) = save_auto_update_preference(&self.data_dir, self.automatic) {
+            tracing::warn!(%error, "could not persist automatic-update preference");
+        }
+        tracing::info!(enabled = self.automatic, "automatic updates preference changed");
+        if self.automatic {
+            self.download_if_needed(cx);
+        }
+        cx.notify();
     }
 
     /// Window activation / wake: check if one is due by the wall clock.
@@ -375,6 +395,29 @@ impl AppUpdate {
     }
 }
 
+const AUTO_UPDATE_PREFERENCE_FILE: &str = "auto-update.json";
+
+fn load_auto_update_preference(data_dir: &Path) -> Option<bool> {
+    let text = std::fs::read_to_string(data_dir.join(AUTO_UPDATE_PREFERENCE_FILE)).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()?
+        .get("enabled")?
+        .as_bool()
+}
+
+fn save_auto_update_preference(data_dir: &Path, enabled: bool) -> std::io::Result<()> {
+    std::fs::create_dir_all(data_dir)?;
+    let path = data_dir.join(AUTO_UPDATE_PREFERENCE_FILE);
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, format!("{{\"enabled\":{enabled}}}\n"))?;
+    // std::fs::rename cannot replace an existing destination on Windows.
+    #[cfg(windows)]
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    std::fs::rename(temporary, path)
+}
+
 /// Label + click action of the strip. Self-updating installs drive their flow
 /// from it; blocked installs explain themselves; managed installs without a
 /// desktop path get the `zeron update` hint; unmanaged installs (source builds,
@@ -446,6 +489,18 @@ pub fn install_on_quit(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_update_preference_round_trips() {
+        let dir = std::env::temp_dir().join(format!("zeron-auto-update-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(load_auto_update_preference(&dir), None);
+        save_auto_update_preference(&dir, false).unwrap();
+        assert_eq!(load_auto_update_preference(&dir), Some(false));
+        save_auto_update_preference(&dir, true).unwrap();
+        assert_eq!(load_auto_update_preference(&dir), Some(true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn strip_follows_the_flow_on_self_updating_installs() {
