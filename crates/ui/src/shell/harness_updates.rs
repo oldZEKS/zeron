@@ -996,7 +996,7 @@ mod tests {
                 "phase": "available",
                 "canApply": true
             },
-            { "harness": "muse", "phase": "available" }
+            { "harness": "future-agent", "phase": "available" }
         ]))
         .unwrap();
         assert_eq!(rows.len(), 1);
