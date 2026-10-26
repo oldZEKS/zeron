@@ -59,7 +59,7 @@ other controls.
 For a set of mutually exclusive options, use `ui.choices` with top-level state:
 
 ```lua
-local s = ui.state { approach = "Hybrid" }
+local s = ui.state { approach = "" }
 return function()
   return ui.column { gap = 12,
     ui.choices {
@@ -76,9 +76,12 @@ return function()
 end
 ```
 
-Changing a tab updates the draft only; Continue sends the selected response. The selected value
-must be one of the declared options and the final message is bounded. Keep state in the
-script's top-level closure, not inside the rendered view, so choices survive UI rerenders.
+A choice group can start with `value = ""` to leave every option unselected. In that state,
+no Continue button is rendered. Selecting a tab updates only the draft; the user must then click
+Continue to send the selected response. Non-empty values must match a declared option and the final
+message is bounded. Keep state in the script's top-level closure, not inside the rendered view, so
+choices survive UI rerenders. This is the preferred pattern when the agent should ask rather than
+silently choose a default.
 
 
 ## Task status and progress
