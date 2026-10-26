@@ -31,6 +31,8 @@ pub struct SkillsPage {
     loaded_harnesses: usize,
     error: Option<String>,
     warning: Option<String>,
+    /// Older parallel catalog refreshes must not overwrite a newer result.
+    request_generation: u64,
     scroll: widgets::PageScroll,
     task: Option<Task<()>>,
 }
@@ -44,6 +46,7 @@ impl SkillsPage {
             loaded_harnesses: 0,
             error: None,
             warning: None,
+            request_generation: 0,
             scroll: widgets::PageScroll::default(),
             task: None,
         };
@@ -52,7 +55,11 @@ impl SkillsPage {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.request_generation = self.request_generation.wrapping_add(1);
+        let generation = self.request_generation;
         let Some(engine) = self.state.read(cx).engine().cloned() else {
+            self.skills.clear();
+            self.loaded_harnesses = 0;
             self.warning = None;
             self.error = Some("Engine not connected.".into());
             self.loading = false;
@@ -137,6 +144,9 @@ impl SkillsPage {
                 None
             };
             this.update(cx, move |page, cx| {
+                if page.request_generation != generation {
+                    return;
+                }
                 page.skills = all;
                 page.loaded_harnesses = successes;
                 page.loading = false;
