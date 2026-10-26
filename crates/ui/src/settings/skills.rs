@@ -58,7 +58,7 @@ impl SkillsPage {
         page.refresh(cx);
         let observed_state = page.state.clone();
         page._observe_state = Some(cx.observe(&observed_state, |page, state, cx| {
-            let key = Self::selected_context_key(state);
+            let key = Self::selected_context_key(&state.read(cx));
             if page.selection_key.as_deref() != Some(key.as_str()) {
                 page.refresh(cx);
             }
