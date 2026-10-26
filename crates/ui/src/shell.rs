@@ -679,10 +679,11 @@ impl SettingsSection {
         })
     }
 
-    /// Nav groups are separated by spacing alone: preferences, providers and
-    /// devices, then workspace data.
+    /// Start a new visual group in Settings: preferences, agent tools/providers,
+    /// devices/account, then workspace files and artifacts. Skills, Providers and
+    /// MCP Servers intentionally stay together; Files and Artifacts stay together.
     fn starts_nav_group(self) -> bool {
-        matches!(self, Self::Skills | Self::Harnesses | Self::McpServers | Self::Files | Self::Artifacts)
+        matches!(self, Self::Skills | Self::Devices | Self::Files)
     }
 
     /// Sidebar + header label (zeron settings-sidebar.tsx SECTIONS / __root.tsx
