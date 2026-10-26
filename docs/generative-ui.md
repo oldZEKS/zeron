@@ -135,6 +135,68 @@ truncation note when the preview is longer. A diff preview is informational only
 apply patches, open files, run tests, or authorize an operation.
 
 
+## Structured forms and task steps
+
+Use `ui.form` when a response needs a small set of user-provided values. Keep editable drafts in
+`ui.state`, validate them on every render, and pass an explicit boolean `valid`. The submit
+button is replaced by a validation status while the form is invalid. The form sends a bounded
+message to the conversation only when the user clicks Submit; it does not run shell commands,
+apply patches, or invoke application actions.
+
+```lua
+local s = ui.state { project = "", budget = "25000" }
+return function()
+  local amount = tonumber(s.budget)
+  local valid = string.match(s.project, "%S") ~= nil and amount ~= nil and amount > 0
+  return ui.form {
+    title = "Project setup",
+    description = "Confirm the details before continuing.",
+    fields = {
+      ui.text_input {
+        label = "Project name",
+        value = s.project,
+        placeholder = "e.g. Macaneta Tourism School",
+        on_change = function(v) s.project = v end,
+      },
+      ui.number_input {
+        label = "Budget (MZN)",
+        value = s.budget,
+        placeholder = "Enter an amount",
+        on_change = function(v) s.budget = v end,
+      },
+    },
+    valid = valid,
+    validation_message = "Enter a project name and a positive budget.",
+    submit_label = "Submit details",
+    message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+  }
+end
+```
+
+A form accepts 1–12 native fields. Validate domain-specific constraints yourself; this is a
+presentation and message-composition helper, not a security boundary. The message is still only
+user input to the owning conversation.
+
+Use `ui.steps` for a bounded checklist or workflow timeline:
+
+```lua
+return function()
+  return ui.steps {
+    title = "Preparing the release",
+    description = "Only mark a step complete after verifying its result.",
+    steps = {
+      { label = "Inspect changes", detail = "Review the current diff", state = "done" },
+      { label = "Run tests", detail = "Waiting for test results", state = "active" },
+      { label = "Publish", state = "pending" },
+    },
+  }
+end
+```
+
+Step states are `done`, `active`, `pending`, or `blocked`; the list is capped at 12 entries.
+These are visual status reports, not proof of completion. Never show a task as done merely because
+an action was requested or queued.
+
 ## Safety and design rules
 
 - The model chooses whether prose, a visual or an interactive control helps; simple answers stay prose.
