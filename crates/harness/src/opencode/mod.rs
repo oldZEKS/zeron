@@ -4750,7 +4750,9 @@ http.createServer((req, res) => {{
                 command: "/path with spaces/zeron".into(),
                 args: vec!["mcp".into()],
                 env: [("ZERON_CHAT_ID".into(), "first".into())].into(),
-            };
+            
+            url: None,
+            headers: Default::default(),};
             let mut second = first.clone();
             second.env.insert("ZERON_CHAT_ID".into(), "second".into());
             let mut a = Server::spawn(
@@ -4808,7 +4810,9 @@ http.createServer((req, res) => {
             command: "zeron".into(),
             args: vec!["mcp".into()],
             env: Default::default(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         let mut server = Server::spawn(
             &exe,
             fixture.path().to_str(),
@@ -4865,7 +4869,9 @@ if (process.argv.includes('--version')) {{
             command: "zeron".into(),
             args: vec!["mcp".into()],
             env: Default::default(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         for _ in 0..2 {
             let mut server = Server::spawn(
                 &exe,
@@ -4891,7 +4897,9 @@ if (process.argv.includes('--version')) {{
             command: "/path with spaces/zeron".into(),
             args: vec!["mcp".into()],
             env: [("ZERON_CHAT_ID".into(), "first".into())].into(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         for protocol in [Protocol::V1, Protocol::V2] {
             let inherited = match protocol {
                 Protocol::V1 => {
