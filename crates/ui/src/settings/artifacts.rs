@@ -3,7 +3,7 @@
 //! Artifacts stay in their workspace. This page uses the existing bounded
 //! workspace-directory and file-read RPCs; it does not scan arbitrary local
 //! paths or copy workspace contents into settings.
-use gpui::{Context, Entity, Render, SharedString, Task, Window, div, prelude::*, px};
+use gpui::{Context, Entity, InteractiveElement, Render, SharedString, Task, Window, div, prelude::*, px};
 
 use zeron_proto::{
     WorkspaceDirectoryPage, WorkspaceEntry, WorkspaceEntryKind, WorkspaceFileText,
@@ -136,7 +136,7 @@ impl ArtifactsPage {
                 let selected_chat = state_ref.selected_chat_row();
                 let device = selected_chat.map(|chat| chat.device_id.clone());
                 let label = selected_chat
-                    .map(|chat| format!("Chat: {}", chat.title))
+                    .map(|chat| format!("Chat: {}", chat.title.as_deref().filter(|title| !title.trim().is_empty()).unwrap_or(chat_id.as_str())))
                     .unwrap_or_else(|| format!("Chat: {chat_id}"));
                 let target_device = device.filter(|id| local_device_id.as_deref().is_some_and(|local| local != id.as_str()));
                 (Some(WorkspaceTarget {
@@ -480,6 +480,7 @@ impl Render for ArtifactsPage {
                     .child(widgets::row_title(&theme, path.clone()))
                     .child(
                         div()
+                            .id("artifacts-preview-scroll")
                             .mt(px(8.0))
                             .w_full()
                             .max_h(px(360.0))
