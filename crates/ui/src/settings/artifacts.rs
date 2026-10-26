@@ -15,6 +15,97 @@ use crate::state::AppState;
 use crate::settings::widgets::{self, ActionTone};
 use crate::theme::Theme;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtifactFilter {
+    All,
+    Media,
+    Documents,
+    Code,
+    Data,
+    Other,
+}
+
+impl ArtifactFilter {
+    const ALL: [Self; 6] = [
+        Self::All,
+        Self::Media,
+        Self::Documents,
+        Self::Code,
+        Self::Data,
+        Self::Other,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Media => "Media",
+            Self::Documents => "Documents",
+            Self::Code => "Code",
+            Self::Data => "Data",
+            Self::Other => "Other",
+        }
+    }
+
+    fn matches(self, entry: &WorkspaceEntry) -> bool {
+        if self == Self::All
+            || !matches!(entry.kind, WorkspaceEntryKind::File)
+        {
+            // Keep folders and links navigable in every filtered view.
+            return true;
+        }
+        let extension = entry
+            .name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext.to_ascii_lowercase())
+            .unwrap_or_default();
+        let category = if matches!(
+            extension.as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tif" | "tiff"
+                | "avif" | "heic" | "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac"
+                | "mp4" | "mov" | "webm" | "mkv" | "glb" | "gltf" | "obj" | "stl"
+        ) {
+            Self::Media
+        } else if matches!(
+            extension.as_str(),
+            "pdf" | "txt" | "md" | "markdown" | "doc" | "docx" | "rtf" | "odt"
+                | "ppt" | "pptx" | "html" | "htm" | "epub"
+        ) {
+            Self::Documents
+        } else if matches!(
+            extension.as_str(),
+            "rs" | "py" | "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "jsonc"
+                | "css" | "scss" | "sass" | "less" | "go" | "java" | "kt" | "kts"
+                | "c" | "h" | "cc" | "cpp" | "hpp" | "cs" | "rb" | "php" | "sh"
+                | "bash" | "zsh" | "ps1" | "bat" | "cmd" | "lua" | "luau" | "swift"
+                | "sql" | "vue" | "svelte" | "astro" | "wasm"
+        ) {
+            Self::Code
+        } else if matches!(
+            extension.as_str(),
+            "json" | "jsonl" | "ndjson" | "csv" | "tsv" | "xml" | "yaml" | "yml"
+                | "toml" | "ini" | "conf" | "cfg" | "env" | "parquet" | "sqlite"
+                | "db" | "xlsx" | "xls" | "feather" | "arrow" | "avro"
+        ) {
+            Self::Data
+        } else {
+            Self::Other
+        };
+        self == category
+    }
+
+    fn count(self, entries: &[WorkspaceEntry]) -> usize {
+        if self == Self::All {
+            return entries.len();
+        }
+        entries
+            .iter()
+            .filter(|entry| {
+                matches!(entry.kind, WorkspaceEntryKind::File) && self.matches(entry)
+            })
+            .count()
+    }
+}
+
 pub struct ArtifactsPage {
     state: Entity<AppState>,
     target: Option<WorkspaceTarget>,
@@ -24,6 +115,7 @@ pub struct ArtifactsPage {
     /// paths/previews from leaking across chat/project switches while Settings stays open.
     target_key: Option<String>,
     directory: String,
+    filter: ArtifactFilter,
     entries: Vec<WorkspaceEntry>,
     preview_path: Option<String>,
     preview_text: Option<String>,
@@ -74,6 +166,7 @@ impl ArtifactsPage {
             target_label,
             target_key: None,
             directory: String::new(),
+            filter: ArtifactFilter::All,
             entries: Vec::new(),
             preview_path: None,
             preview_text: None,
@@ -301,10 +394,11 @@ impl Render for ArtifactsPage {
             .on_click(cx.listener(|page, _, _, cx| page.go_parent(cx)))
             .child("← Parent");
         let path_label = if self.directory.is_empty() { "/".to_owned() } else { format!("/{}", self.directory) };
+        let filter = self.filter;
         let target_label = self.target_label.clone().unwrap_or_else(|| "No workspace selected".to_owned());
 
         let mut entry_rows = Vec::new();
-        for entry in &self.entries {
+        for entry in self.entries.iter().filter(|entry| filter.matches(entry)) {
             let path = entry.path.clone();
             let kind = entry.kind;
             let name = entry.name.clone();
@@ -341,6 +435,39 @@ impl Render for ArtifactsPage {
                     .into_any_element(),
             );
         }
+
+        let mut filter_buttons = Vec::new();
+        for category in ArtifactFilter::ALL {
+            let selected = category == self.filter;
+            let count = category.count(&self.entries);
+            filter_buttons.push(
+                widgets::action_button(
+                    &theme,
+                    if selected { ActionTone::Solid } else { ActionTone::Quiet },
+                )
+                .id(format!("artifacts-filter-{}", category.label().to_ascii_lowercase()))
+                .tab_index(0)
+                .role(gpui::Role::Button)
+                .aria_label(format!("Show {} artifacts", category.label()))
+                .on_click(cx.listener(move |page, _, _, cx| {
+                    page.filter = category;
+                    cx.notify();
+                }))
+                .child(format!("{} ({count})", category.label()))
+                .into_any_element(),
+            );
+        }
+
+        let visible_count = self.entries.iter().filter(|entry| filter.matches(entry)).count();
+        let entry_summary = if self.entries.is_empty() {
+            "No entries in this directory.".to_owned()
+        } else if visible_count == 0 {
+            format!("No {} files in this directory.", filter.label().to_ascii_lowercase())
+        } else if filter == ArtifactFilter::All {
+            format!("{} entries", visible_count)
+        } else {
+            format!("{} matching entries", visible_count)
+        };
 
         let preview_panel = self.preview_path.as_ref().map(|path| {
             let preview = self.preview_text.clone().unwrap_or_else(|| {
@@ -421,6 +548,22 @@ impl Render for ArtifactsPage {
                                                 .gap(px(8.0))
                                                 .child(parent_button)
                                                 .child(div().text_color(theme.text).child(path_label)),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt(px(10.0))
+                                                .flex()
+                                                .flex_row()
+                                                .flex_wrap()
+                                                .gap(px(6.0))
+                                                .children(filter_buttons),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt(px(6.0))
+                                                .text_color(theme.text_muted)
+                                                .text_size(crate::typography::ui_rems(11.5))
+                                                .child(SharedString::from(entry_summary)),
                                         )
                                         .children(entry_rows)
                                         .children(self.error.as_ref().map(|error| {
