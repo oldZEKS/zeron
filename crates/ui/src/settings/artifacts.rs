@@ -207,7 +207,7 @@ impl ArtifactsPage {
                 let selected_chat = state.selected_chat_row();
                 let device = selected_chat.map(|chat| chat.device_id.clone());
                 let label = selected_chat
-                    .map(|chat| format!("Chat: {}", chat.title))
+                    .map(|chat| format!("Chat: {}", chat.title.as_deref().filter(|title| !title.trim().is_empty()).unwrap_or(chat_id.as_str())))
                     .unwrap_or_else(|| format!("Chat: {chat_id}"));
                 let target_device = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
                 (Some(WorkspaceTarget {
