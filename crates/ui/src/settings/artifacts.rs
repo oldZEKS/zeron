@@ -3,7 +3,7 @@
 //! Artifacts stay in their workspace. This page uses the existing bounded
 //! workspace-directory and file-read RPCs; it does not scan arbitrary local
 //! paths or copy workspace contents into settings.
-use gpui::{Context, Entity, InteractiveElement, Render, SharedString, Task, Window, div, prelude::*, px};
+use gpui::{Context, Entity, InteractiveElement, Render, SharedString, StatefulInteractiveElement, Task, Window, div, prelude::*, px};
 
 use zeron_proto::{
     WorkspaceDirectoryPage, WorkspaceEntry, WorkspaceEntryKind, WorkspaceFileText,
@@ -413,6 +413,7 @@ impl Render for ArtifactsPage {
             };
             entry_rows.push(
                 widgets::card_row(&theme, entry_rows.is_empty())
+                    .id(format!("artifacts-entry-{path}"))
                     .cursor_pointer()
                     .on_click(cx.listener(move |page, _, _, cx| {
                         match kind {
