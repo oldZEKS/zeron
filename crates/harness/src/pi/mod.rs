@@ -95,7 +95,7 @@ impl PiHarness {
         })
     }
     async fn probe(&self, cwd: &Path, models: bool) -> Result<Value, HarnessError> {
-        let mut process = self.spawn(cwd, &["--no-session".into()], None, &Default::default())?;
+        let mut process = self.spawn(cwd, &["--no-session".into()], &[], &Default::default())?;
         let (mut tx, rx) = tokio::sync::oneshot::channel();
         let grace = self.kill_grace;
         tokio::spawn(async move {
