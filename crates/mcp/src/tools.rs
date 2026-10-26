@@ -253,6 +253,11 @@ fn catalog() -> Vec<ToolDef> {
 const SHOW_VISUAL: &str = "show_visual";
 
 const SHOW_VISUAL_DESCRIPTION: &str = r###"
+MANDATORY INTERACTION CONTRACT
+- When the user explicitly asks for interactive choices, buttons, a form, or an interactive task workflow, call `show_visual` in this turn and render the native controls. A Markdown list is not a substitute for explicitly requested interactive UI.
+- For an undecided choice, use `ui.choices` with its selected value initialized to the empty string (`""`). Leave every option unselected and let the reader click Continue; do not select for them or start dependent work before they respond.
+- If the response depends on the selected project/workspace, use the actual workspace context supplied by Zeron and inspect files only when needed. A failed shell or discovery command is not evidence that the workspace is empty. Never claim to have inspected files unless a command/tool actually returned usable contents; retry with a valid command or state the inspection failed.
+
 Show a native, interactive visual (chart, table, dashboard, diagram, simulation, or 3D view) inline in this chat, above your final text reply. Call this tool before writing that reply whenever a visual communicates more clearly than prose. Do not merely announce or repeat the visual in the final text.
 
 Scripts use Luau (Lua 5.1 plus +=, continue, and if expressions). They run in a sandbox with no I/O or network, a 64 MB memory cap, and a short execution budget. Build data and state at the top level and return a view function. Handlers should update top-level state; Zeron re-renders the view after an interaction. The runtime validates setup, rendering, draw handlers, and each control before displaying the visual. Fix any reported script error and call again.
