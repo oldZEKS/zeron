@@ -755,7 +755,9 @@ fn steps_component_renders_status_and_rejects_unknown_states() {
     assert_eq!(children.len(), 3);
 
     let mut invalid = Visual::load(
-        r#"return ui.steps { steps = { { label = "Ship", state = "unknown" } } }"#,
+        r#"return function()
+          return ui.steps { steps = { { label = "Ship", state = "unknown" } } }
+        end"#,
         1,
     )
     .unwrap();
