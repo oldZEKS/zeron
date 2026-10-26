@@ -81,17 +81,32 @@ impl SkillsPage {
             let mut all = Vec::new();
             let mut successes = 0usize;
             let mut failures = Vec::new();
-            for (harness, label) in SKILL_HARNESSES {
-                let mut params = serde_json::json!({ "harness": harness });
-                if let Some(chat_id) = &chat_id {
-                    params["chatId"] = serde_json::Value::String(chat_id.clone());
-                } else if let Some(space_id) = &space_id {
-                    params["spaceId"] = serde_json::Value::String(space_id.clone());
-                }
-                if let Some(target) = &target_device_id {
-                    params["targetDeviceId"] = serde_json::Value::String(target.clone());
-                }
-                match engine.client().call(methods::LIST_SKILLS, params).await {
+            // Discover the supported catalogs concurrently so a slow or unavailable
+            // provider does not serialize the entire inventory refresh.
+            let results = futures::future::join_all(
+                SKILL_HARNESSES.into_iter().map(|(harness, label)| {
+                    let engine = engine.clone();
+                    let chat_id = chat_id.clone();
+                    let space_id = space_id.clone();
+                    let target_device_id = target_device_id.clone();
+                    async move {
+                        let mut params = serde_json::json!({ "harness": harness });
+                        if let Some(chat_id) = chat_id {
+                            params["chatId"] = serde_json::Value::String(chat_id);
+                        } else if let Some(space_id) = space_id {
+                            params["spaceId"] = serde_json::Value::String(space_id);
+                        }
+                        if let Some(target) = target_device_id {
+                            params["targetDeviceId"] = serde_json::Value::String(target);
+                        }
+                        let result = engine.client().call(methods::LIST_SKILLS, params).await;
+                        (harness, label, result)
+                    }
+                }),
+            )
+            .await;
+            for (harness, label, result) in results {
+                match result {
                     Ok(value) => match serde_json::from_value::<Vec<Skill>>(value) {
                         Ok(skills) => {
                             successes += 1;
