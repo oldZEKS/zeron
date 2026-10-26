@@ -741,3 +741,39 @@ fn steps_component_renders_status_and_rejects_unknown_states() {
     assert!(error.message.contains("ui.steps state"), "{}", error.message);
 }
 
+#[test]
+fn choice_group_starts_unselected_and_does_not_submit_a_default() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { approach = "" }
+        return function()
+          return ui.choices {
+            title = "Choose an approach",
+            options = { "DOM-first", "Vision-first", "Hybrid" },
+            value = s.approach,
+            on_change = function(v) s.approach = v end,
+            reply_prefix = "Use ",
+            reply_suffix = " for browser automation.",
+            submit_label = "Continue",
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let initial = visual.render().unwrap();
+    assert!(text_of(&initial).contains("Choose an option to continue."));
+    assert!(!text_of(&initial).contains("Continue"));
+    let tabs = find(&initial, &|node| matches!(&node.kind, NodeKind::Tabs { value, .. } if value.is_empty()))
+        .expect("choice tabs must begin without a selected value");
+    let NodeKind::Tabs { on_change, .. } = &tabs.kind else {
+        unreachable!()
+    };
+    visual.call(*on_change, HandlerArg::Text("Vision-first".into())).unwrap();
+
+    let selected = visual.render().unwrap();
+    assert!(text_of(&selected).contains("Continue"));
+    assert!(text_of(&selected).contains("Use Vision-first for browser automation."));
+}
+
