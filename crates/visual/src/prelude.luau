@@ -390,7 +390,12 @@ local function collect_form_values(node, values, depth)
 		if value == nil then
 			value = type(node.options) == "table" and node.options[1] or nil
 		end
-		local selected = value == nil or value == "" and "(no selection)" or tostring(value)
+		local selected
+		if value == nil or value == "" then
+			selected = "(no selection)"
+		else
+			selected = tostring(value)
+		end
 		local options = type(node.options) == "table" and table.concat(node.options, " | ") or ""
 		table.insert(values, label .. ": " .. selected .. (options ~= "" and " (options: " .. options .. ")" or ""))
 		-- context_label is metadata for ui.form, not a native tabs property.
@@ -429,6 +434,7 @@ function ui.form(props)
 	if type(props.fields) ~= "table" or #props.fields == 0 or #props.fields > 12 then
 		error("ui.form requires between 1 and 12 fields")
 	end
+	local values = {}
 	for i, field in ipairs(props.fields) do
 		if type(field) ~= "table" then
 			error("ui.form field " .. tostring(i) .. " must be a native UI component")
@@ -437,6 +443,9 @@ function ui.form(props)
 		if field.context_label ~= nil and type(field.context_label) ~= "string" then
 			error("ui.form field " .. tostring(i) .. " context_label must be a string")
 		end
+		-- Collect before rendering even when invalid, so private metadata such as
+		-- context_label is stripped before the native node parser sees the fields.
+		collect_form_values(field, values, 0)
 	end
 	if type(props.valid) ~= "boolean" then
 		error("ui.form requires an explicit valid boolean")
@@ -460,10 +469,6 @@ function ui.form(props)
 		table.insert(card, field)
 	end
 	if props.valid then
-		local values = {}
-		for _, field in ipairs(props.fields) do
-			collect_form_values(field, values, 0)
-		end
 		local context = {}
 		if props.title and string.match(props.title, "%S") then
 			table.insert(context, "Form: " .. props.title)
