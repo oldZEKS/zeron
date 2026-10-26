@@ -20,6 +20,12 @@ const EXAMPLE: &str = r#"[
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/path/to/project"],
     "env": {},
     "enabled": false
+  },
+  {
+    "name": "sheet",
+    "url": "http://127.0.0.1:4317/mcp",
+    "headers": {},
+    "enabled": false
   }
 ]"#;
 
@@ -28,6 +34,14 @@ pub struct McpsPage {
     scroll: widgets::PageScroll,
     error: Option<String>,
     saved: Option<String>,
+}
+
+/// HTTP header names must be visible ASCII tokens; values cannot inject new headers.
+fn valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+        })
 }
 
 impl McpsPage {
@@ -85,6 +99,11 @@ impl McpsPage {
         for (index, server) in servers.iter_mut().enumerate() {
             server.name = server.name.trim().to_owned();
             server.command = server.command.trim().to_owned();
+            server.url = server
+                .url
+                .take()
+                .map(|url| url.trim().to_owned())
+                .filter(|url| !url.is_empty());
             if server.name.is_empty() || !server.name.chars().all(|ch| {
                 ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
             }) {
@@ -108,8 +127,59 @@ impl McpsPage {
                 cx.notify();
                 return;
             }
-            if server.command.is_empty() {
-                self.error = Some(format!("Server '{}' needs a command.", server.name));
+
+            let remote = server.url.is_some();
+            if remote && !server.command.is_empty() {
+                self.error = Some(format!(
+                    "Server '{}' must use either 'url' (HTTP) or 'command' (stdio), not both.",
+                    server.name
+                ));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+            if !remote && server.command.is_empty() {
+                self.error = Some(format!(
+                    "Server '{}' needs a 'command' for stdio or a 'url' for HTTP.",
+                    server.name
+                ));
+                self.saved = None;
+                cx.notify();
+                return;
+            }
+            if let Some(url) = server.url.as_deref() {
+                let parsed = match url::Url::parse(url) {
+                    Ok(parsed)
+                        if matches!(parsed.scheme(), "http" | "https")
+                            && parsed.host_str().is_some()
+                            && parsed.username().is_empty()
+                            && parsed.password().is_none()
+                            && parsed.fragment().is_none() => parsed,
+                    _ => {
+                        self.error = Some(format!(
+                            "Server '{}' needs an absolute http:// or https:// MCP URL without embedded credentials or a fragment.",
+                            server.name
+                        ));
+                        self.saved = None;
+                        cx.notify();
+                        return;
+                    }
+                };
+                let _ = parsed;
+                if !server.args.is_empty() || !server.env.is_empty() {
+                    self.error = Some(format!(
+                        "HTTP server '{}' uses 'headers', not stdio 'args' or 'env'.",
+                        server.name
+                    ));
+                    self.saved = None;
+                    cx.notify();
+                    return;
+                }
+            } else if !server.headers.is_empty() {
+                self.error = Some(format!(
+                    "Stdio server '{}' uses 'env'; 'headers' is only for HTTP servers.",
+                    server.name
+                ));
                 self.saved = None;
                 cx.notify();
                 return;
@@ -119,8 +189,15 @@ impl McpsPage {
                 || server.env.iter().any(|(key, value)| {
                     key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0')
                 })
+                || server.headers.iter().any(|(key, value)| {
+                    !valid_header_name(key)
+                        || value.contains(['\\r', '\\n', '\\0'])
+                })
             {
-                self.error = Some(format!("Server '{}' contains an invalid command, argument, or environment entry.", server.name));
+                self.error = Some(format!(
+                    "Server '{}' contains an invalid command, argument, environment entry, or HTTP header.",
+                    server.name
+                ));
                 self.saved = None;
                 cx.notify();
                 return;
@@ -154,6 +231,10 @@ impl Render for McpsPage {
         for (index, server) in configured.iter().enumerate() {
             let state_label = if server.enabled { "Enabled" } else { "Disabled" };
             let state_color = if server.enabled { theme.success_muted } else { theme.text_muted };
+            let endpoint = match &server.url {
+                Some(url) => format!("HTTP · {url}"),
+                None => format!("stdio · {}", server.command),
+            };
             server_rows.push(
                 widgets::card_row(&theme, index == 0)
                     .child(
@@ -163,7 +244,7 @@ impl Render for McpsPage {
                             .child(widgets::row_title(&theme, server.name.clone()))
                             .child(widgets::meta_line(
                                 &theme,
-                                vec![div().child(SharedString::from(server.command.clone())).into_any_element()],
+                                vec![div().child(SharedString::from(endpoint)).into_any_element()],
                             )),
                     )
                     .child(
@@ -255,7 +336,7 @@ impl Render for McpsPage {
                                         .child(
                                             div()
                                                 .text_color(theme.text)
-                                                .child("Configure stdio MCP servers for supported local coding-agent runners. Enabled servers are injected into new local runs only where the provider supports per-run MCP configuration; remote-hosted runs never launch processes from this device.")
+                                                .child("Configure local stdio MCP servers or Streamable HTTP endpoints for supported local coding-agent runners. Enabled servers are injected into new local runs only where the provider supports the transport; remote-hosted runs do not receive this device's MCP configuration.")
                                                 .mb(px(8.0)),
                                         )
                                         .child(
@@ -263,7 +344,7 @@ impl Render for McpsPage {
                                                 .text_color(theme.text_muted)
                                                 .text_size(crate::typography::ui_rems(12.0))
                                                 .mb(px(12.0))
-                                                .child("Use a JSON array with name, command, args, env, and enabled fields. Only entries with enabled set to true are passed to new runs; the built-in Zeron MCP remains separate."),
+                                                .child("Use a JSON array. Stdio entries use name, command, optional args/env, and enabled. HTTP entries use name, url, optional headers, and enabled. Set exactly one of command or url. For HTTP, the endpoint must be reachable from the machine running the agent; 127.0.0.1 refers to that machine. Only enabled entries are passed to new local runs; the built-in Zeron MCP remains separate."),
                                         )
                                         .child(editor_panel)
                                         .child(
