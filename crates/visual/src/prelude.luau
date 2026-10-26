@@ -149,6 +149,12 @@ function ui.choices(props)
 	end
 	local title = props.title
 	local description = props.description
+	if title ~= nil and type(title) ~= "string" then
+		error("ui.choices title must be a string")
+	end
+	if description ~= nil and type(description) ~= "string" then
+		error("ui.choices description must be a string")
+	end
 	local value = props.value
 	if props.reply_prefix ~= nil and type(props.reply_prefix) ~= "string" then
 		error("ui.choices reply_prefix must be a string")
@@ -156,9 +162,21 @@ function ui.choices(props)
 	if props.reply_suffix ~= nil and type(props.reply_suffix) ~= "string" then
 		error("ui.choices reply_suffix must be a string")
 	end
-	local message = (props.reply_prefix or "") .. value .. (props.reply_suffix or "")
+	-- The visual itself may not be present in the model's next-turn text context.
+	-- Send the complete decision context with the chosen answer, not just its label.
+	local answer = (props.reply_prefix or "") .. value .. (props.reply_suffix or "")
+	local context = {}
+	if title and string.match(title, "%S") then
+		table.insert(context, "Question: " .. title)
+	end
+	if description and string.match(description, "%S") then
+		table.insert(context, "Context: " .. description)
+	end
+	table.insert(context, "Options: " .. table.concat(props.options, " | "))
+	table.insert(context, "Selected answer: " .. answer)
+	local message = table.concat(context, "\n")
 	if selected and (#message == 0 or #message > 8192 or not string.match(message, "%S")) then
-		error("ui.choices reply message must contain 1 to 8192 non-whitespace bytes")
+		error("ui.choices reply message must contain 1 to 8192 non-whitespace bytes including its context")
 	end
 	local view = { __kind = "column", gap = props.gap or 12 }
 	if title then
@@ -358,6 +376,38 @@ function ui.diff(props)
 end
 
 
+-- Collect the current values from supported native controls, including controls
+-- nested in layout nodes. This is sent with the form reply because the next agent
+-- turn cannot safely infer the live visual's state from prose alone.
+local function collect_form_values(node, values, depth)
+	if type(node) ~= "table" or depth > 12 then
+		return
+	end
+	local kind = node.__kind
+	if kind == "tabs" then
+		local label = node.context_label or "Selection"
+		local value = node.value
+		if value == nil then
+			value = type(node.options) == "table" and node.options[1] or nil
+		end
+		local selected = value == nil or value == "" and "(no selection)" or tostring(value)
+		local options = type(node.options) == "table" and table.concat(node.options, " | ") or ""
+		table.insert(values, label .. ": " .. selected .. (options ~= "" and " (options: " .. options .. ")" or ""))
+		-- context_label is metadata for ui.form, not a native tabs property.
+		node.context_label = nil
+	elseif kind == "toggle" then
+		table.insert(values, (node.label or "Toggle") .. ": " .. (node.value and "On" or "Off"))
+	elseif kind == "slider" then
+		local number = node.value
+		if number == nil then number = node.min or 0 end
+		local label = node.label or "Value"
+		table.insert(values, label .. ": " .. tostring(number) .. (node.unit or ""))
+	end
+	for _, child in ipairs(node) do
+		collect_form_values(child, values, depth + 1)
+	end
+end
+
 -- A compact, validated form composition. Inputs stay as drafts until the
 -- explicit reply button is clicked; callers must compute validity from state.
 -- This component never executes application actions itself.
@@ -383,6 +433,10 @@ function ui.form(props)
 		if type(field) ~= "table" then
 			error("ui.form field " .. tostring(i) .. " must be a native UI component")
 		end
+		-- Optional label for tabs, which intentionally have no visible label of their own.
+		if field.context_label ~= nil and type(field.context_label) ~= "string" then
+			error("ui.form field " .. tostring(i) .. " context_label must be a string")
+		end
 	end
 	if type(props.valid) ~= "boolean" then
 		error("ui.form requires an explicit valid boolean")
@@ -406,9 +460,28 @@ function ui.form(props)
 		table.insert(card, field)
 	end
 	if props.valid then
+		local values = {}
+		for _, field in ipairs(props.fields) do
+			collect_form_values(field, values, 0)
+		end
+		local context = {}
+		if props.title and string.match(props.title, "%S") then
+			table.insert(context, "Form: " .. props.title)
+		end
+		if props.description and string.match(props.description, "%S") then
+			table.insert(context, "Context: " .. props.description)
+		end
+		table.insert(context, props.message)
+		if #values > 0 then
+			table.insert(context, "Submitted control values:\n" .. table.concat(values, "\n"))
+		end
+		local message = table.concat(context, "\n\n")
+		if #message > 8192 then
+			error("ui.form submitted context must not exceed 8192 bytes")
+		end
 		table.insert(card, ui.reply {
 			label = props.submit_label or "Submit",
-			message = props.message,
+			message = message,
 			primary = props.primary ~= false,
 		})
 	else
