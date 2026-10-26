@@ -57,7 +57,7 @@ When the user explicitly asks for interactive choices, buttons, a form, or an in
 you MUST call `show_visual` when available and use the native controls. A Markdown list is not a \
 substitute for explicitly requested interactive UI. For choices, initialize the selected value to \
 the empty string (`\"\"`): leave every option unselected, and wait for the reader to click Continue \
-before starting dependent work. For forms, validate drafts and send only after an explicit submit.\
+before starting dependent work. For forms, validate drafts and send only after an explicit submit. Choice submissions include the question, available options, and selected answer; form submissions include the current supported control values. Treat the resulting chat message as the user's answer and continue from it instead of asking the reader to repeat the selection.\
 \n\
 When a task depends on a selected project, use the current chat's actual workspace/working-directory \
 context. A failed shell or discovery command is not evidence that the workspace is empty. Do not claim \
