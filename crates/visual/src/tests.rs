@@ -650,3 +650,94 @@ fn progress_component_rejects_an_invalid_range() {
     );
 }
 
+
+#[test]
+fn form_groups_fields_and_gates_reply_on_explicit_validation() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { project = "", budget = "250" }
+        return function()
+          local amount = tonumber(s.budget)
+          local valid = string.match(s.project, "%S") ~= nil and amount ~= nil and amount > 0
+          return ui.form {
+            title = "Project setup",
+            description = "Provide the key details before continuing.",
+            fields = {
+              ui.text_input {
+                label = "Project name",
+                value = s.project,
+                on_change = function(v) s.project = v end,
+              },
+              ui.number_input {
+                label = "Budget (MZN)",
+                value = s.budget,
+                on_change = function(v) s.budget = v end,
+              },
+            },
+            valid = valid,
+            validation_message = "Enter a project name and a positive budget.",
+            submit_label = "Submit project",
+            message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let initial = visual.render().unwrap();
+    assert!(text_of(&initial).contains("Project setup"));
+    assert!(text_of(&initial).contains("Enter a project name"));
+    assert!(!text_of(&initial).contains("Submit project"));
+
+    let project = find(&initial, &|node| matches!(
+        &node.kind,
+        NodeKind::Input { label, numeric: false, .. } if label == "Project name"
+    )).expect("project name input should be present");
+    let NodeKind::Input { on_change, .. } = &project.kind else {
+        unreachable!()
+    };
+    visual.call(*on_change, HandlerArg::Text("Macaneta".into())).unwrap();
+
+    let updated = visual.render().unwrap();
+    assert!(text_of(&updated).contains("Submit project"));
+    assert!(text_of(&updated).contains("Project: Macaneta"));
+}
+
+#[test]
+fn steps_component_renders_status_and_rejects_unknown_states() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.steps {
+            title = "Deployment",
+            steps = {
+              { label = "Build", detail = "Compiled successfully", state = "done" },
+              { label = "Review", detail = "Waiting for approval", state = "active" },
+              { label = "Publish", state = "pending" },
+            },
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    assert!(text_of(&tree).contains("Deployment"));
+    assert!(text_of(&tree).contains("Compiled successfully"));
+    assert!(text_of(&tree).contains("Waiting for approval"));
+    assert!(text_of(&tree).contains("Publish"));
+    let NodeKind::Card { children, .. } = &tree.kind else {
+        panic!("expected native card");
+    };
+    assert_eq!(children.len(), 3);
+
+    let mut invalid = Visual::load(
+        r#"return ui.steps { steps = { { label = "Ship", state = "unknown" } } }"#,
+        1,
+    )
+    .unwrap();
+    let error = invalid.render().unwrap_err();
+    assert!(error.message.contains("ui.steps state"), "{}", error.message);
+}
+
