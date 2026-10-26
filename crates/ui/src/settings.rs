@@ -3011,6 +3011,7 @@ mod tests {
             notifications_background_only: false,
             files_panel_width: 310.0,
             agent_update_notifications: false,
+            mcp_servers: Vec::new(),
             right_pane_width: 700.0,
             pull_request_pane_width: 820.0,
             right_pane_open: true,
