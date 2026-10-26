@@ -81,6 +81,16 @@ pub enum NodeKind {
         value: bool,
         on_change: HandlerId,
     },
+    /// An editable field whose draft is sent to Luau as text. Number inputs
+    /// deliberately keep an in-progress string (for example "-" or "1.")
+    /// until the agent validates it on submission.
+    Input {
+        label: String,
+        value: String,
+        placeholder: Option<String>,
+        numeric: bool,
+        on_change: HandlerId,
+    },
     Slider {
         label: Option<String>,
         value: f64,
@@ -651,6 +661,26 @@ impl Parser {
                 NodeKind::Toggle {
                     label: props.string("label")?.unwrap_or_default(),
                     value: props.bool("value")?.unwrap_or(false),
+                    on_change: self.required_function(&props, "on_change")?,
+                }
+            }
+            "input" => {
+                props.allow(&["label", "value", "placeholder", "type", "on_change"])?;
+                let input_type = props.string("type")?.unwrap_or_else(|| "text".to_owned());
+                let numeric = match input_type.as_str() {
+                    "text" => false,
+                    "number" => true,
+                    _ => return Err(props.error("'type' must be 'text' or 'number'")),
+                };
+                let value = props.text_value("value")?.unwrap_or_default();
+                if value.len() > MAX_TEXT {
+                    return Err(props.error(&format!("'value' is over {MAX_TEXT} characters")));
+                }
+                NodeKind::Input {
+                    label: props.required_string("label")?,
+                    value,
+                    placeholder: props.string("placeholder")?,
+                    numeric,
                     on_change: self.required_function(&props, "on_change")?,
                 }
             }
