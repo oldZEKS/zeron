@@ -4707,6 +4707,13 @@ fn mcp_config_many(
             if !mcp.headers.is_empty() {
                 remote["headers"] = json!(mcp.headers);
             }
+            // Expose the actual tool contracts to the model. Code Mode is
+            // useful for broad catalogs but hides individual MCP tool names
+            // behind a generated wrapper, which makes small task-specific
+            // servers harder for the agent to discover and invoke.
+            if protocol == Protocol::V2 {
+                remote["codemode"] = json!(false);
+            }
             remote
         } else {
             let command: Vec<&str> = std::iter::once(mcp.command.as_str())
