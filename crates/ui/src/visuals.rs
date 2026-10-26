@@ -397,17 +397,20 @@ impl VisualFrame {
         self.reply_pending.insert(action_id.clone());
         self.error = None;
         cx.notify();
+        // This callback runs on GPUI's executor, not inside a Tokio runtime.
+        // Reuse the shared RPC deadline helper, which races the call against
+        // GPUI's background-executor timer rather than tokio::time::timeout.
+        let executor = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
-            let result = tokio::time::timeout(
+            let error = crate::attachments::call_with_timeout(
+                &engine,
+                &executor,
+                methods::QUEUE_COMMAND,
+                params,
                 Duration::from_secs(30),
-                engine.client().call(methods::QUEUE_COMMAND, params),
             )
-            .await;
-            let error = match result {
-                Ok(Ok(_)) => None,
-                Ok(Err(error)) => Some(error.to_string()),
-                Err(_) => Some("sending the response timed out".to_owned()),
-            };
+            .await
+            .err();
             let _ = this.update(cx, |this, cx| {
                 this.reply_pending.remove(&action_id);
                 if let Some(error) = error {
