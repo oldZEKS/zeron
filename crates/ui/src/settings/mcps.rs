@@ -114,13 +114,13 @@ fn validate_servers(servers: &mut [ConfiguredMcpServer]) -> Result<(), String> {
                 server.name
             ));
         }
-        if server.command.contains('\\0')
-            || server.args.iter().any(|arg| arg.contains('\\0'))
+        if server.command.contains('\0')
+            || server.args.iter().any(|arg| arg.contains('\0'))
             || server.env.iter().any(|(key, value)| {
-                key.is_empty() || key.contains('=') || key.contains('\\0') || value.contains('\\0')
+                key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0')
             })
             || server.headers.iter().any(|(key, value)| {
-                !valid_header_name(key) || value.contains(['\\r', '\\n', '\\0'])
+                !valid_header_name(key) || value.contains(['\r', '\n', '\0'])
             })
         {
             return Err(format!(
