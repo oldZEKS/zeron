@@ -2547,8 +2547,11 @@ fn initialize_params(harness: HarnessId) -> Value {
 /// the host injected nothing — the user's own servers come from the agent's
 /// config, never from here.
 fn acp_mcp_servers(servers: &[zeron_proto::McpServer]) -> Vec<Value> {
+    // The ACP session/new mcpServers shape supports stdio launch commands,
+    // not remote HTTP endpoints. Never pass an empty command to the agent.
     servers
         .iter()
+        .filter(|mcp| mcp.url.is_none())
         .map(|mcp| {
             json!({
                 "name": mcp.name,
@@ -3761,6 +3764,17 @@ async fn run_session(session: Session) {
     let mut configured_mcp_servers = request.mcp_servers.clone();
     if let Some(mcp) = &request.mcp {
         configured_mcp_servers.push(mcp.clone());
+    }
+    let unsupported_http: Vec<_> = configured_mcp_servers
+        .iter()
+        .filter(|mcp| mcp.url.is_some())
+        .map(|mcp| mcp.name.as_str())
+        .collect();
+    if !unsupported_http.is_empty() {
+        tracing::warn!(
+            servers = ?unsupported_http,
+            "this ACP agent only accepts stdio MCP servers; remote HTTP MCP servers were not injected"
+        );
     }
 
     // ---- handshake + session (interruptible) ------------------------------
@@ -6397,6 +6411,19 @@ fn explicit_program_launches_do_not_get_archive_scratch_roots() {
 #[cfg(test)]
 mod mcp_injection_tests {
     use super::*;
+
+    #[test]
+    fn acp_omits_http_mcp_servers_instead_of_passing_empty_commands() {
+        let remote = zeron_proto::McpServer {
+            name: "sheet".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:4317/mcp".into()),
+            headers: Default::default(),
+        };
+        assert!(acp_mcp_servers(&[remote]).is_empty());
+    }
 
     #[test]
     fn acp_mcp_servers_spell_env_as_name_value_pairs_and_default_empty() {
