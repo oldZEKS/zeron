@@ -448,7 +448,10 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
         (on_change, reply.clone())
     };
-    assert_eq!(reply.as_deref(), Some("Use Hybrid for automation."));
+    assert_eq!(
+        reply.as_deref(),
+        Some("Question: Choose an approach\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Hybrid for automation.")
+    );
 
     visual.call(tab_handler, HandlerArg::Text("Vision-first".into())).unwrap();
     let updated = visual.render().unwrap();
@@ -457,7 +460,10 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         NodeKind::Button { reply: Some(_), .. }
     )).unwrap();
     let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
-    assert_eq!(reply.as_deref(), Some("Use Vision-first for automation."));
+    assert_eq!(
+        reply.as_deref(),
+        Some("Question: Choose an approach\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Vision-first for automation.")
+    );
 
     for script in [
         r#"return ui.choices { options = {}, value = "x", on_change = function() end }"#,
@@ -717,10 +723,12 @@ fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
     let NodeKind::Button { reply, .. } = &submit.kind else {
         unreachable!()
     };
-    assert_eq!(
-        reply.as_deref(),
-        Some("Project: Macaneta\nBudget (MZN): 250")
-    );
+    let reply = reply.as_deref().unwrap();
+    assert!(reply.contains("Form: Project setup"));
+    assert!(reply.contains("Context: Choose the project and set a budget before continuing."));
+    assert!(reply.contains("Project: Macaneta\nBudget (MZN): 250"));
+    assert!(reply.contains("Selection: Macaneta (options: Macaneta | Maputo)"));
+    assert!(reply.contains("Budget: 250"));
 }
 
 #[test]
