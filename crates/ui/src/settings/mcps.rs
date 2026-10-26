@@ -44,6 +44,94 @@ fn valid_header_name(name: &str) -> bool {
         })
 }
 
+fn validate_servers(servers: &mut [ConfiguredMcpServer]) -> Result<(), String> {
+    if servers.len() > 32 {
+        return Err("A maximum of 32 MCP servers can be configured.".into());
+    }
+    let mut names = HashSet::new();
+    for (index, server) in servers.iter_mut().enumerate() {
+        server.name = server.name.trim().to_owned();
+        server.command = server.command.trim().to_owned();
+        server.url = server
+            .url
+            .take()
+            .map(|url| url.trim().to_owned())
+            .filter(|url| !url.is_empty());
+        if server.name.is_empty()
+            || !server.name.chars().all(|ch| {
+                ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
+            })
+        {
+            return Err(format!(
+                "Server {} needs a name containing only letters, numbers, dots, underscores, or hyphens.",
+                index + 1
+            ));
+        }
+        if server.name.eq_ignore_ascii_case("zeron") {
+            return Err("The name 'zeron' is reserved for Zeron's built-in MCP server.".into());
+        }
+        if !names.insert(server.name.to_ascii_lowercase()) {
+            return Err(format!("The server name '{}' is duplicated.", server.name));
+        }
+
+        let remote = server.url.is_some();
+        if remote && !server.command.is_empty() {
+            return Err(format!(
+                "Server '{}' must use either 'url' (HTTP) or 'command' (stdio), not both.",
+                server.name
+            ));
+        }
+        if !remote && server.command.is_empty() {
+            return Err(format!(
+                "Server '{}' needs a 'command' for stdio or a 'url' for HTTP.",
+                server.name
+            ));
+        }
+        if let Some(url) = server.url.as_deref() {
+            match url::Url::parse(url) {
+                Ok(parsed)
+                    if matches!(parsed.scheme(), "http" | "https")
+                        && parsed.host_str().is_some()
+                        && parsed.username().is_empty()
+                        && parsed.password().is_none()
+                        && parsed.fragment().is_none() => {}
+                _ => {
+                    return Err(format!(
+                        "Server '{}' needs an absolute http:// or https:// MCP URL without embedded credentials or a fragment.",
+                        server.name
+                    ));
+                }
+            }
+            if !server.args.is_empty() || !server.env.is_empty() {
+                return Err(format!(
+                    "HTTP server '{}' uses 'headers', not stdio 'args' or 'env'.",
+                    server.name
+                ));
+            }
+        } else if !server.headers.is_empty() {
+            return Err(format!(
+                "Stdio server '{}' uses 'env'; 'headers' is only for HTTP servers.",
+                server.name
+            ));
+        }
+        if server.command.contains('\\0')
+            || server.args.iter().any(|arg| arg.contains('\\0'))
+            || server.env.iter().any(|(key, value)| {
+                key.is_empty() || key.contains('=') || key.contains('\\0') || value.contains('\\0')
+            })
+            || server.headers.iter().any(|(key, value)| {
+                !valid_header_name(key) || value.contains(['\\r', '\\n', '\\0'])
+            })
+        {
+            return Err(format!(
+                "Server '{}' contains an invalid command, argument, environment entry, or HTTP header.",
+                server.name
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl McpsPage {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let initial = serde_json::to_string_pretty(&settings::current(cx).mcp_servers)
@@ -89,119 +177,11 @@ impl McpsPage {
                 return;
             }
         };
-        if servers.len() > 32 {
-            self.error = Some("A maximum of 32 MCP servers can be configured.".into());
+        if let Err(error) = validate_servers(&mut servers) {
+            self.error = Some(error);
             self.saved = None;
             cx.notify();
             return;
-        }
-        let mut names = HashSet::new();
-        for (index, server) in servers.iter_mut().enumerate() {
-            server.name = server.name.trim().to_owned();
-            server.command = server.command.trim().to_owned();
-            server.url = server
-                .url
-                .take()
-                .map(|url| url.trim().to_owned())
-                .filter(|url| !url.is_empty());
-            if server.name.is_empty() || !server.name.chars().all(|ch| {
-                ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
-            }) {
-                self.error = Some(format!(
-                    "Server {} needs a name containing only letters, numbers, dots, underscores, or hyphens.",
-                    index + 1
-                ));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-            if server.name.eq_ignore_ascii_case("zeron") {
-                self.error = Some("The name 'zeron' is reserved for Zeron's built-in MCP server.".into());
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-            if !names.insert(server.name.to_ascii_lowercase()) {
-                self.error = Some(format!("The server name '{}' is duplicated.", server.name));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-
-            let remote = server.url.is_some();
-            if remote && !server.command.is_empty() {
-                self.error = Some(format!(
-                    "Server '{}' must use either 'url' (HTTP) or 'command' (stdio), not both.",
-                    server.name
-                ));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-            if !remote && server.command.is_empty() {
-                self.error = Some(format!(
-                    "Server '{}' needs a 'command' for stdio or a 'url' for HTTP.",
-                    server.name
-                ));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-            if let Some(url) = server.url.as_deref() {
-                let parsed = match url::Url::parse(url) {
-                    Ok(parsed)
-                        if matches!(parsed.scheme(), "http" | "https")
-                            && parsed.host_str().is_some()
-                            && parsed.username().is_empty()
-                            && parsed.password().is_none()
-                            && parsed.fragment().is_none() => parsed,
-                    _ => {
-                        self.error = Some(format!(
-                            "Server '{}' needs an absolute http:// or https:// MCP URL without embedded credentials or a fragment.",
-                            server.name
-                        ));
-                        self.saved = None;
-                        cx.notify();
-                        return;
-                    }
-                };
-                let _ = parsed;
-                if !server.args.is_empty() || !server.env.is_empty() {
-                    self.error = Some(format!(
-                        "HTTP server '{}' uses 'headers', not stdio 'args' or 'env'.",
-                        server.name
-                    ));
-                    self.saved = None;
-                    cx.notify();
-                    return;
-                }
-            } else if !server.headers.is_empty() {
-                self.error = Some(format!(
-                    "Stdio server '{}' uses 'env'; 'headers' is only for HTTP servers.",
-                    server.name
-                ));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
-            if server.command.contains('\0')
-                || server.args.iter().any(|arg| arg.contains('\0'))
-                || server.env.iter().any(|(key, value)| {
-                    key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0')
-                })
-                || server.headers.iter().any(|(key, value)| {
-                    !valid_header_name(key)
-                        || value.contains(['\\r', '\\n', '\\0'])
-                })
-            {
-                self.error = Some(format!(
-                    "Server '{}' contains an invalid command, argument, environment entry, or HTTP header.",
-                    server.name
-                ));
-                self.saved = None;
-                cx.notify();
-                return;
-            }
         }
         if settings::update(SavePolicy::Immediate, cx, |settings| {
             settings.mcp_servers = servers.clone();
@@ -218,6 +198,62 @@ impl McpsPage {
             self.saved = None;
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(value: &str) -> ConfiguredMcpServer {
+        serde_json::from_str(value).expect("valid fixture JSON")
+    }
+
+    #[test]
+    fn accepts_sheet_streamable_http_endpoint_without_stdio_command() {
+        let mut servers = vec![server(
+            r#"{"name":" sheet ","url":" http://127.0.0.1:4317/mcp ","headers":{},"enabled":true}"#,
+        )];
+        validate_servers(&mut servers).unwrap();
+        assert_eq!(servers[0].name, "sheet");
+        assert_eq!(servers[0].command, "");
+        assert_eq!(servers[0].url.as_deref(), Some("http://127.0.0.1:4317/mcp"));
+    }
+
+    #[test]
+    fn keeps_legacy_stdio_settings_valid() {
+        let mut servers = vec![server(
+            r#"{"name":"filesystem","command":"npx","args":["-y","server"],"env":{},"enabled":true}"#,
+        )];
+        validate_servers(&mut servers).unwrap();
+        assert_eq!(servers[0].command, "npx");
+        assert_eq!(servers[0].url, None);
+    }
+
+    #[test]
+    fn rejects_mixed_stdio_and_http_transports() {
+        let mut servers = vec![server(
+            r#"{"name":"sheet","command":"node","url":"http://127.0.0.1:4317/mcp","enabled":true}"#,
+        )];
+        assert!(validate_servers(&mut servers).unwrap_err().contains("not both"));
+    }
+
+    #[test]
+    fn rejects_non_http_urls_and_embedded_credentials() {
+        for url in [
+            "file:///tmp/mcp",
+            "ftp://127.0.0.1/mcp",
+            "http://user:secret@127.0.0.1:4317/mcp",
+            "http://127.0.0.1:4317/mcp#fragment",
+        ] {
+            let mut servers = vec![ConfiguredMcpServer {
+                name: "remote".into(),
+                url: Some(url.into()),
+                enabled: true,
+                ..Default::default()
+            }];
+            assert!(validate_servers(&mut servers).is_err(), "accepted {url}");
+        }
     }
 }
 
