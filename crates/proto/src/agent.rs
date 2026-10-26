@@ -370,11 +370,21 @@ impl std::fmt::Debug for RunRequest {
 #[serde(rename_all = "camelCase")]
 pub struct McpServer {
     pub name: String,
+    /// Stdio transport executable. Empty only when `url` selects HTTP.
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// Child-process environment for stdio servers. For remote HTTP servers,
+    /// credentials belong in `headers` instead.
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
+    /// MCP Streamable HTTP endpoint. When present, takes precedence over stdio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Additional HTTP headers for remote servers.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
 }
 
 /// Isolated-worktree directive riding [`RunRequest`]. The worktree is created
