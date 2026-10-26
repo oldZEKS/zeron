@@ -31,10 +31,13 @@ pub struct SkillsPage {
     loaded_harnesses: usize,
     error: Option<String>,
     warning: Option<String>,
+    /// Selection identity used to refresh inventory when the chat/project changes.
+    selection_key: Option<String>,
     /// Older parallel catalog refreshes must not overwrite a newer result.
     request_generation: u64,
     scroll: widgets::PageScroll,
     task: Option<Task<()>>,
+    _observe_state: Option<gpui::Subscription>,
 }
 
 impl SkillsPage {
@@ -46,17 +49,47 @@ impl SkillsPage {
             loaded_harnesses: 0,
             error: None,
             warning: None,
+            selection_key: None,
             request_generation: 0,
             scroll: widgets::PageScroll::default(),
             task: None,
+            _observe_state: None,
         };
         page.refresh(cx);
+        let observed_state = page.state.clone();
+        page._observe_state = Some(cx.observe(&observed_state, |page, state, cx| {
+            let key = Self::selected_context_key(state);
+            if page.selection_key.as_deref() != Some(key.as_str()) {
+                page.refresh(cx);
+            }
+        }));
         page
+    }
+
+    fn selected_context_key(state: &AppState) -> String {
+        let chat_id = state.selected_chat.clone();
+        let (chat_device, project) = if chat_id.is_some() {
+            (
+                state.selected_chat_row().map(|chat| chat.device_id.clone()),
+                None,
+            )
+        } else {
+            (
+                None,
+                state.selected_space_row().map(|space| (space.id.clone(), space.device_id.clone())),
+            )
+        };
+        format!("{chat_id:?}|{chat_device:?}|{project:?}|{:?}", state.local_device_id)
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.request_generation = self.request_generation.wrapping_add(1);
         let generation = self.request_generation;
+        let selection_key = {
+            let state = self.state.read(cx);
+            Self::selected_context_key(&state)
+        };
+        self.selection_key = Some(selection_key);
         let Some(engine) = self.state.read(cx).engine().cloned() else {
             self.skills.clear();
             self.loaded_harnesses = 0;
