@@ -1,8 +1,9 @@
 # Conversational generative UI
 
 Zeron's `show_visual` tool renders native, sandboxed visuals inline in a conversation. This fork
-extends that foundation with reply routing, choice groups, status rows, progress bars, and read-only
-diff previews, while keeping controls and local state inside the native visual runtime.
+extends that foundation with explicit conversational choices, validated forms, native status and
+progress components, task steps, and read-only diff previews, while keeping controls and local state
+inside the native visual runtime.
 
 ## Native cards
 
@@ -211,14 +212,16 @@ an action was requested or queued.
 
 ## Next increments
 
-1. Add short text and numeric inputs with local draft state and explicit submit.
-2. Add a schema-backed form primitive and richer artifact previews.
-3. Bind application actions (open diff, run tests, etc.) to typed permission-checked engine operations.
-4. Add action receipts/result states and mobile conversational dispatch parity.
-5. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
+1. Add richer artifact previews for image, PDF and structured-output files without copying workspace files into settings.
+2. Bind app actions (open diff, run tests, etc.) to typed, permission-checked engine operations with explicit confirmation and result receipts.
+3. Add mobile editing and conversational reply dispatch parity.
+4. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
 
 ## Scope
 
-This branch implements desktop reply buttons, reusable choice groups, native cards, status rows, progress bars, and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal JSON component protocol or
-full mobile GenUI. Mobile lays cards out with matching content hierarchy and padding, but the
-desktop's outer card frame is not yet rendered there. Conversational reply dispatch is also desktop-only.
+This branch implements desktop reply buttons, choice groups that can begin unselected, native cards,
+draft text/number inputs, validated form composition, status rows, progress bars, task-step timelines,
+and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal
+JSON component protocol or full mobile GenUI. Mobile lays cards out with matching content hierarchy
+and padding, but the desktop's outer card frame is not yet rendered there. Conversational reply
+dispatch and editable text inputs are also desktop-only.
