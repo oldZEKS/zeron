@@ -37,11 +37,11 @@ export default function (pi) {
     if (contentType.includes("text/event-stream")) {
       // Streamable HTTP responses may contain progress notifications before
       // the JSON-RPC result. Return the frame matching this request id.
-      for (const event of text.split(/\\r?\\n\\r?\\n/)) {
-        const data = event.split(/\\r?\\n/)
+      for (const event of text.split(/\r?\n\r?\n/)) {
+        const data = event.split(/\r?\n/)
           .filter(line => line.startsWith("data:"))
           .map(line => line.slice(5).trimStart())
-          .join("\\n");
+          .join("\n");
         if (!data || data === "[DONE]") continue;
         try {
           const parsed = JSON.parse(data);
@@ -126,7 +126,7 @@ export default function (pi) {
           return;
         }
         if (!this.child?.stdin?.writable) return;
-        this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\\n");
+        this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
       },
       rpc(method, params, signal) {
         if (config.url) return this.httpRpc(method, params, signal);
@@ -147,7 +147,7 @@ export default function (pi) {
               jsonrpc: "2.0",
               method: "notifications/cancelled",
               params: { requestId: id },
-            }) + "\\n");
+            }) + "\n");
             cleanup();
             reject(new Error("MCP request cancelled"));
           };
@@ -160,7 +160,7 @@ export default function (pi) {
             reject: error => { cleanup(); reject(error); },
           });
           signal?.addEventListener("abort", abort, { once: true });
-          child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\\n", error => {
+          child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n", error => {
             if (error) this.pending.get(id)?.reject(error);
           });
         });
@@ -224,7 +224,7 @@ export default function (pi) {
               if (response?.isError) {
                 throw new Error(
                   response.content?.filter(item => item.type === "text")
-                    .map(item => item.text).join("\\n") || `MCP tool ${tool.name} failed`,
+                    .map(item => item.text).join("\n") || `MCP tool ${tool.name} failed`,
                 );
               }
               return { content: response?.content ?? [], details: response?.structuredContent ?? {} };
