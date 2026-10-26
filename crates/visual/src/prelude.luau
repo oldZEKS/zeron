@@ -132,15 +132,17 @@ function ui.choices(props)
 	end
 	local selected = false
 	for _, option in ipairs(props.options) do
-		if type(option) ~= "string" then
-			error("ui.choices options must all be strings")
+		if type(option) ~= "string" or not string.match(option, "%S") then
+			error("ui.choices options must be non-empty strings")
 		end
 		if option == props.value then
 			selected = true
 		end
 	end
-	if not selected then
-		error("ui.choices value must match one of its options")
+	-- An empty value is an intentional unselected state. Non-empty invalid
+	-- values remain errors so stale state cannot silently select another option.
+	if not selected and props.value ~= "" then
+		error("ui.choices value must be empty or match one of its options")
 	end
 	if type(props.on_change) ~= "function" then
 		error("ui.choices requires on_change")
@@ -148,9 +150,15 @@ function ui.choices(props)
 	local title = props.title
 	local description = props.description
 	local value = props.value
+	if props.reply_prefix ~= nil and type(props.reply_prefix) ~= "string" then
+		error("ui.choices reply_prefix must be a string")
+	end
+	if props.reply_suffix ~= nil and type(props.reply_suffix) ~= "string" then
+		error("ui.choices reply_suffix must be a string")
+	end
 	local message = (props.reply_prefix or "") .. value .. (props.reply_suffix or "")
-	if #message == 0 or #message > 8192 then
-		error("ui.choices reply message must contain 1 to 8192 bytes")
+	if selected and (#message == 0 or #message > 8192 or not string.match(message, "%S")) then
+		error("ui.choices reply message must contain 1 to 8192 non-whitespace bytes")
 	end
 	local view = { __kind = "column", gap = props.gap or 12 }
 	if title then
@@ -164,11 +172,19 @@ function ui.choices(props)
 		value = value,
 		on_change = props.on_change,
 	})
-	table.insert(view, ui.reply {
-		label = props.submit_label or "Continue",
-		message = message,
-		primary = props.primary ~= false,
-	})
+	if selected then
+		table.insert(view, ui.reply {
+			label = props.submit_label or "Continue",
+			message = message,
+			primary = props.primary ~= false,
+		})
+	else
+		table.insert(view, ui.text {
+			"Choose an option to continue.",
+			size = "sm",
+			color = "muted",
+		})
+	end
 	return view
 end
 
