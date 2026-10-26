@@ -95,14 +95,20 @@ fn mcp_config_arg(servers: &[zeron_proto::McpServer]) -> String {
     let configured: serde_json::Map<String, Value> = servers
         .iter()
         .map(|server| {
-            (
-                server.name.clone(),
+            let config = if let Some(url) = server.url.as_deref() {
+                let mut remote = serde_json::json!({ "type": "http", "url": url });
+                if !server.headers.is_empty() {
+                    remote["headers"] = serde_json::json!(server.headers);
+                }
+                remote
+            } else {
                 serde_json::json!({
                     "command": server.command,
                     "args": server.args,
                     "env": server.env,
-                }),
-            )
+                })
+            };
+            (server.name.clone(), config)
         })
         .collect();
     serde_json::json!({ "mcpServers": configured }).to_string()
@@ -1530,6 +1536,22 @@ mod tests {
 #[cfg(test)]
 mod mcp_injection_tests {
     use super::*;
+
+    #[test]
+    fn mcp_config_arg_uses_http_transport_for_remote_servers() {
+        let server = zeron_proto::McpServer {
+            name: "sheet".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:4317/mcp".into()),
+            headers: [("X-Test".into(), "value".into())].into_iter().collect(),
+        };
+        let parsed: Value = serde_json::from_str(&mcp_config_arg(&[server])).unwrap();
+        assert_eq!(parsed["mcpServers"]["sheet"]["type"], "http");
+        assert_eq!(parsed["mcpServers"]["sheet"]["url"], "http://127.0.0.1:4317/mcp");
+        assert_eq!(parsed["mcpServers"]["sheet"]["headers"]["X-Test"], "value");
+    }
 
     #[test]
     fn mcp_config_arg_spells_the_server_the_way_the_cli_reads_it() {
