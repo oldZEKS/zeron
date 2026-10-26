@@ -9182,8 +9182,9 @@ impl Composer {
         }
         cx.notify();
 
-        // MCP commands are device-local processes. Never send this computer's
-        // commands or environment values to a remotely hosted chat.
+        // MCP server configurations are device-local. Never send this
+        // computer's executable paths, endpoint URLs, environment values, or
+        // HTTP headers to a remotely hosted chat.
         let configured_mcp_servers: Vec<zeron_proto::McpServer> = if host_is_remote {
             Vec::new()
         } else {
@@ -9196,6 +9197,8 @@ impl Composer {
                     command: server.command,
                     args: server.args,
                     env: server.env,
+                    url: server.url,
+                    headers: server.headers,
                 })
                 .collect()
         };
