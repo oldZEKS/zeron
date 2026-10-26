@@ -1340,6 +1340,7 @@ impl Tools {
                     .unwrap_or_else(|| "~".into());
                 let request = RunRequest {
                     mcp: None,
+                    mcp_servers: Vec::new(),
                     prompt: text,
                     harness: Some(harness),
                     model: config.as_ref().and_then(|c| c.model.clone()),
