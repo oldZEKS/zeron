@@ -694,7 +694,10 @@ fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
     .unwrap();
 
     let initial = visual.render().unwrap();
-    assert!(text_of(&initial).contains("Project setup"));
+    assert!(matches!(
+        &initial.kind,
+        NodeKind::Card { title: Some(title), .. } if title == "Project setup"
+    ));
     assert!(text_of(&initial).contains("Choose a project"));
     let tabs = find(&initial, &|node| matches!(
         &node.kind,
@@ -739,7 +742,10 @@ fn steps_component_renders_status_and_rejects_unknown_states() {
     )
     .unwrap();
     let tree = visual.render().unwrap();
-    assert!(text_of(&tree).contains("Deployment"));
+    assert!(matches!(
+        &tree.kind,
+        NodeKind::Card { title: Some(title), .. } if title == "Deployment"
+    ));
     assert!(text_of(&tree).contains("Compiled successfully"));
     assert!(text_of(&tree).contains("Waiting for approval"));
     assert!(text_of(&tree).contains("Publish"));
