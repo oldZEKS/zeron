@@ -1872,6 +1872,8 @@ async fn idle_voice_runtime_has_no_initial_turn_and_preserves_mcp() {
         command: "zeron".into(),
         args: vec!["mcp".into()],
         env: Default::default(),
+        url: None,
+        headers: Default::default(),
     });
     let (mut controls, steer, token) = controls("Yes");
     let (voice, bridge, _events) = zeron_harness::codex::realtime::channel();
