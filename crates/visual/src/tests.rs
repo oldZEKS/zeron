@@ -685,7 +685,7 @@ fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
             valid = valid,
             validation_message = "Choose a project and a positive budget.",
             submit_label = "Submit project",
-            message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+            message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
           }
         end
         "#,
