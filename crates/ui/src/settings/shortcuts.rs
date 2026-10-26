@@ -60,6 +60,7 @@ pub enum ShortcutsEvent {
 pub struct ShortcutsPage {
     appshots_page: bool,
     general_page: bool,
+    info_page: bool,
     appshots_focus_pending: bool,
     scroll: crate::settings::widgets::PageScroll,
     /// Working copy (kept in sync with the shell via change events).
@@ -106,6 +107,7 @@ impl ShortcutsPage {
         Self {
             appshots_page: false,
             general_page: false,
+            info_page: false,
             appshots_focus_pending: false,
             scroll: crate::settings::widgets::PageScroll::default(),
             keymap,
@@ -135,15 +137,16 @@ impl ShortcutsPage {
     }
 
     pub fn show_appshots(&mut self, appshots: bool) {
-        self.show_section(appshots, false);
+        self.show_section(appshots, false, false);
     }
 
-    pub fn show_section(&mut self, appshots: bool, general: bool) {
-        if self.appshots_page != appshots || self.general_page != general {
+    pub fn show_section(&mut self, appshots: bool, general: bool, info: bool) {
+        if self.appshots_page != appshots || self.general_page != general || self.info_page != info {
             self.stop_recording();
             self.conflict_notice = None;
             self.appshots_page = appshots;
             self.general_page = general;
+            self.info_page = info;
             self.appshots_focus_pending = appshots;
             // One scroll state serves these pages — rewind it so each opens
             // at the top instead of where the other was left.
@@ -737,6 +740,68 @@ impl Render for ShortcutsPage {
         let escape_stops_active_agent = self.escape_stops_active_agent;
         let send_behavior = self.composer_send_behavior;
         let compact_mode = crate::settings::transcript_compact_mode(cx);
+        let app_update_state = crate::app_update::AppUpdate::global(cx).map(|update| {
+            let state = update.read(cx);
+            (
+                update.clone(),
+                state.automatic(),
+                state.self_updating() || state.blocker().is_some(),
+                state.self_updating(),
+            )
+        });
+        let app_auto_update_row = app_update_state.as_ref().map(
+            |(update_entity, automatic, update_capable, update_available_now)| {
+                let mut toggle = widgets::toggle_switch(
+                    &theme,
+                    *automatic,
+                    "app-automatic-updates",
+                )
+                .id("app-automatic-updates-toggle")
+                .tab_index(0)
+                .role(gpui::Role::Switch)
+                .aria_label("Automatic app updates")
+                .aria_toggled(if *automatic {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                });
+
+                {
+                    let update_entity = update_entity.clone();
+                    toggle = toggle
+                        .focus_visible(|s| s.border_2().border_color(theme.accent))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            update_entity.update(cx, |update, cx| update.toggle_automatic(cx));
+                            cx.notify();
+                        }));
+                }
+
+                widgets::card_row(&theme, false)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(widgets::row_title(&theme, "Automatic app updates"))
+                            .child(widgets::meta_line(
+                                &theme,
+                                vec![
+                                    div()
+                                        .child(if *update_available_now {
+                                            "Download updates in the background and install on quit."
+                                        } else if *update_capable {
+                                            "This installation supports automatic updates, but updating is temporarily blocked."
+                                        } else {
+                                            "Preference is saved, but this build cannot install its own updates."
+                                        })
+                                        .into_any_element(),
+                                ],
+                            )),
+                    )
+                    .child(toggle)
+                    .into_any_element()
+            },
+        );
         let customized = self.keymap != KeymapConfig::default()
             || escape_stops_active_agent
             || send_behavior != ComposerSendBehavior::default();
@@ -883,6 +948,73 @@ impl Render for ShortcutsPage {
                     this.set_escape_stops_active_agent(!escape_stops_active_agent, cx);
                 })),
             );
+        if self.info_page {
+            let update_capable = app_update_state
+                .as_ref()
+                .is_some_and(|(_, _, capable, _)| *capable);
+            let update_available_now = app_update_state
+                .as_ref()
+                .is_some_and(|(_, _, _, available)| *available);
+            let version_row = widgets::card_row(&theme, true)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(widgets::row_title(&theme, "Zeron"))
+                        .child(widgets::meta_line(
+                            &theme,
+                            vec![
+                                div()
+                                    .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                                    .into_any_element(),
+                            ],
+                        )),
+                );
+            let update_note = if update_available_now {
+                "Automatic app updates download in the background and are staged for install on quit."
+            } else if update_capable {
+                "This installation supports automatic updates, but the updater is temporarily blocked. The On/Off preference remains saved."
+            } else {
+                "This source or unmanaged build cannot install app updates itself. The preference is saved, and manual update actions remain available where supported."
+            };
+            return div()
+                .id("info-settings-page-host")
+                .relative()
+                .size_full()
+                .child(
+                    crate::edge_fade::edge_faded(
+                        16.0,
+                        true,
+                        true,
+                        div()
+                            .id("info-settings-page")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll.scroll)
+                            .child(
+                                widgets::page_column()
+                                    .child(widgets::page_header(&theme, "Info", None))
+                                    .child(
+                                        widgets::section_card(&theme)
+                                            .child(version_row)
+                                            .children(app_auto_update_row),
+                                    )
+                                    .child(widgets::section(
+                                        &theme,
+                                        "About automatic updates",
+                                        widgets::section_card(&theme)
+                                            .mt_0()
+                                            .child(widgets::meta_line(
+                                                &theme,
+                                                vec![div().child(update_note).into_any_element()],
+                                            )),
+                                    )),
+                            ),
+                    )
+                    .fade_overflow_y(&self.scroll.scroll),
+                )
+                .into_any_element();
+        }
         if self.general_page {
             let pull_request_destination = crate::settings::current(cx).pull_request_destination;
             let pull_request_destination_control = widgets::select(
@@ -1197,7 +1329,7 @@ mod tests {
                 AppshotDestination::Automatic,
                 cx,
             );
-            page.show_section(false, true);
+            page.show_section(false, true, false);
             page
         });
         cx.update(|window, cx| window.draw(cx).clear());
@@ -1224,7 +1356,7 @@ mod tests {
         page.update(cx, |page, _| {
             assert_eq!(page.composer_send_behavior, ComposerSendBehavior::ModEnter);
             assert!(page.escape_stops_active_agent);
-            page.show_section(false, false);
+            page.show_section(false, false, false);
         });
         cx.update(|window, cx| window.draw(cx).clear());
         assert!(cx.debug_bounds("composer-send-behavior").is_none());

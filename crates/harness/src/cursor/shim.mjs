@@ -688,11 +688,19 @@ async function start(msg) {
     local.store = fresh.store;
     runDir = fresh.dir;
   }
+  const mcpServers = {};
+  for (const server of msg.mcpServers ?? []) {
+    if (!server?.name || !server?.command) continue;
+    mcpServers[server.name] = {
+      type: "stdio",
+      command: server.command,
+      args: Array.isArray(server.args) ? server.args : [],
+      env: server.env && typeof server.env === "object" ? server.env : {},
+    };
+  }
   const options = {
     model,
-    ...(msg.mcp ? { mcpServers: { [msg.mcp.name]: {
-      type: "stdio", command: msg.mcp.command, args: msg.mcp.args, env: msg.mcp.env,
-    } } } : {}),
+    ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
     // askQuestion has no public answer channel in this SDK (SDKRequestMessage
     // carries only a request id) — a question would block the run forever.
     // generateImage has nowhere to land in a zeron session (ACP parity).

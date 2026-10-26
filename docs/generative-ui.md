@@ -1,8 +1,9 @@
 # Conversational generative UI
 
-Zeron's existing `show_visual` tool already creates native, interactive visuals. This fork
-adds an explicit bridge from visible controls to the owning conversation and an ergonomic
-choice-group primitive.
+Zeron's `show_visual` tool renders native, sandboxed visuals inline in a conversation. This fork
+extends that foundation with explicit conversational choices, validated forms, native status and
+progress components, task steps, and read-only diff previews, while keeping controls and local state
+inside the native visual runtime.
 
 ## Native cards
 
@@ -59,7 +60,7 @@ other controls.
 For a set of mutually exclusive options, use `ui.choices` with top-level state:
 
 ```lua
-local s = ui.state { approach = "Hybrid" }
+local s = ui.state { approach = "" }
 return function()
   return ui.column { gap = 12,
     ui.choices {
@@ -76,9 +77,138 @@ return function()
 end
 ```
 
-Changing a tab updates the draft only; Continue sends the selected response. The selected value
-must be one of the declared options and the final message is bounded. Keep state in the
-script's top-level closure, not inside the rendered view, so choices survive UI rerenders.
+A choice group can start with `value = ""` to leave every option unselected. In that state,
+no Continue button is rendered. Selecting a tab updates only the draft; the user must then click
+Continue to send the selected response. Non-empty values must match a declared option and the final
+message is bounded. Keep state in the script's top-level closure, not inside the rendered view, so
+choices survive UI rerenders. This is the preferred pattern when the agent should ask rather than
+silently choose a default.
+
+
+## Task status and progress
+
+Use status rows to make the current state explicit without turning the whole answer into a dashboard:
+
+```lua
+return function()
+  return ui.column { gap = 12,
+    ui.status {
+      label = "Indexing documents",
+      detail = "42 of 60 files processed",
+      tone = "info",
+    },
+    ui.progress {
+      label = "Indexing",
+      value = 42,
+      max = 60,
+      tone = "success",
+    },
+    ui.status {
+      label = "Waiting for confirmation",
+      detail = "No action will be taken until you choose.",
+      tone = "warning",
+    },
+  }
+end
+```
+
+`ui.status` accepts `label`, optional `detail`, and `tone` (`info`, `success`,
+`warning`, `error`, or `neutral`). `ui.progress` accepts a numeric `value`, optional
+`min` and `max` (defaulting to 0 and 100), `label`, `tone`, `segments`, and
+`show_value`. Values are clamped to the declared range and rendered as a compact, accessible
+text-based bar. These primitives communicate state; they do not prove that a task actually
+succeeded. Status must come from observed results, not an optimistic guess.
+
+## Code diff previews
+
+`ui.diff` renders a bounded, read-only preview of proposed changes:
+
+```lua
+return function()
+  return ui.diff {
+    file = "src/retry.rs",
+    language = "rust",
+    removed = { "let retries = 0;" },
+    added = { "let retries = 1;" },
+  }
+end
+```
+
+Use `removed` and `added` arrays of lines. At most 40 lines per side are shown, with a
+truncation note when the preview is longer. A diff preview is informational only: it does not
+apply patches, open files, run tests, or authorize an operation.
+
+
+## Structured forms and task steps
+
+Use `ui.form` to group supported native controls (such as tabs, toggles, and sliders) into a
+small validated conversational submission. Keep draft selections in `ui.state`, validate them
+on every render, and pass an explicit boolean `valid`. The submit button is replaced by a
+validation status while the form is invalid. The form sends a bounded message to the conversation
+only when the user clicks Submit; it does not run shell commands, apply patches, or invoke
+application actions. This runtime does not yet provide free-text or numeric-entry widgets, so do
+not use `ui.text_input` or `ui.number_input`.
+
+```lua
+local s = ui.state { project = "", budget = 25000 }
+return function()
+  local valid = s.project ~= "" and s.budget > 0
+  return ui.form {
+    title = "Project setup",
+    description = "Choose a project and set a budget before continuing.",
+    fields = {
+      ui.column {
+        ui.text "Project",
+        ui.tabs {
+          options = { "Macaneta", "Maputo" },
+          value = s.project,
+          on_change = function(v) s.project = v end,
+        },
+      },
+      ui.column {
+        ui.text "Budget (MZN)",
+        ui.slider {
+          label = "Budget",
+          value = s.budget,
+          min = 0,
+          max = 100000,
+          step = 1000,
+          unit = "MZN",
+          on_change = function(v) s.budget = v end,
+        },
+      },
+    },
+    valid = valid,
+    validation_message = "Choose a project and a positive budget.",
+    submit_label = "Submit details",
+    message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
+  }
+end
+```
+
+A form accepts 1–12 supported native controls. Validate domain-specific constraints yourself;
+this is a presentation and message-composition helper, not a security boundary. The message is
+still only user input to the owning conversation.
+
+Use `ui.steps` for a bounded checklist or workflow timeline:
+
+```lua
+return function()
+  return ui.steps {
+    title = "Preparing the release",
+    description = "Only mark a step complete after verifying its result.",
+    steps = {
+      { label = "Inspect changes", detail = "Review the current diff", state = "done" },
+      { label = "Run tests", detail = "Waiting for test results", state = "active" },
+      { label = "Publish", state = "pending" },
+    },
+  }
+end
+```
+
+Step states are `done`, `active`, `pending`, or `blocked`; the list is capped at 12 entries.
+These are visual status reports, not proof of completion. Never show a task as done merely because
+an action was requested or queued.
 
 ## Safety and design rules
 
@@ -91,15 +221,16 @@ script's top-level closure, not inside the rendered view, so choices survive UI 
 
 ## Next increments
 
-1. Add short text and numeric inputs with local draft state and explicit submit.
-2. Add schema-backed native components for forms, status, progress, code diffs and artifact previews.
-3. Bind application actions (open diff, run tests, etc.) to typed permission-checked engine operations.
-4. Add action receipts/result states and mobile conversational dispatch parity.
-5. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
+1. Add richer artifact previews for image, PDF and structured-output files without copying workspace files into settings.
+2. Bind app actions (open diff, run tests, etc.) to typed, permission-checked engine operations with explicit confirmation and result receipts.
+3. Add mobile editing and conversational reply dispatch parity.
+4. Add end-to-end fixtures for duplicate clicks, failed/remote RPC, untrusted content and confirmation gates.
 
 ## Scope
 
-This branch implements desktop reply buttons, reusable choice groups and a native card primitive
-on top of the existing Luau visual runtime. It is not yet a universal JSON component protocol or
-full mobile GenUI. Mobile lays cards out with matching content hierarchy and padding, but the
-desktop's outer card frame is not yet rendered there. Conversational reply dispatch is also desktop-only.
+This branch implements desktop reply buttons, choice groups that can begin unselected, native cards,
+validated form composition using supported native controls, status rows, progress bars, task-step
+timelines, and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal
+JSON component protocol or full mobile GenUI. Mobile lays cards out with matching content hierarchy
+and padding, but the desktop's outer card frame is not yet rendered there. Conversational reply
+dispatch and editable text inputs are also desktop-only.

@@ -400,6 +400,10 @@ impl Harness for CursorHarness {
 
         let (stdin_tx, stdin_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(stdin_writer(stdin, stdin_rx));
+        let mut mcp_servers = request.mcp_servers.clone();
+        if let Some(mcp) = &request.mcp {
+            mcp_servers.push(mcp.clone());
+        }
         let first = json!({
             "op": "run",
             "prompt": request.prompt,
@@ -409,7 +413,7 @@ impl Harness for CursorHarness {
             // shim folds them into the SDK's ModelSelection params.
             "modelOptions": request.model_options,
             "resume": request.resume,
-            "mcp": request.mcp,
+            "mcpServers": mcp_servers,
             "storeDir": lease.as_ref().and_then(|lease| lease.store_dir.as_ref()),
         });
         let _ = stdin_tx.send(first.to_string());

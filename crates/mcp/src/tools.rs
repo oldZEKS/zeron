@@ -252,134 +252,67 @@ fn catalog() -> Vec<ToolDef> {
 /// Zeron launched (`ZERON_CHAT_ID` set).
 const SHOW_VISUAL: &str = "show_visual";
 
-const SHOW_VISUAL_DESCRIPTION: &str = "\
-Show an interactive visual (chart, table, dashboard, diagram, simulation, 3D view) inline in this \
-chat, above your final text reply; call it before writing that reply. Use it when a visual says more \
-than prose. The reader already sees it, so the reply should not announce, locate, or restate it: add \
-only what the visual doesn't say.\n\
-\n\
-A visual is a Luau script (Lua 5.1 plus `+=`, `continue`, and `if` expressions). Zeron runs it in a \
-sandbox (no I/O or network; math.random is seeded, so data is the same on every render) and renders \
-what it returns with Zeron's own native interface. Build data and state at the top level, then return \
-a view function. Zeron calls the view again after every handler, so handlers just assign to state:\n\
-\n\
-local s = ui.state { metric = \"p95\" }\n\
-local data = { { region = \"us-east\", p95 = 182, p99 = 240 }, { region = \"eu-west\", p95 = 140, p99 = 210 } }\n\
-return function()\n\
-  return ui.column { gap = 16,\n\
-    ui.text { \"Latency by region\", size = \"lg\", weight = 600 },\n\
-    ui.tabs { options = { \"p95\", \"p99\" }, value = s.metric, on_change = function(v) s.metric = v end },\n\
-    ui.chart { type = \"bar\", height = 220, unit = \"ms\",\n\
-      x = ui.map(data, function(d) return d.region end),\n\
-      series = { { name = s.metric, values = ui.map(data, function(d) return d[s.metric] end) } } },\n\
-  }\n\
-end\n\
-\n\
-Zeron runs the script before showing it (setup, render, every draw, and each tab, toggle, slider, and \
-button once) and returns the first error with its line; fix it and call again.\n\
-\n\
-Nodes are props tables: children are the array part, strings are plain text, nil and false children \
-are skipped, and lists of nodes flatten (so ui.map results can be children). Unknown props are errors.\n\
-- ui.card { title = "Optional heading", description = "Optional supporting text", gap = 8, ...children } is a compact, theme-styled native card. Cards stack fluidly and take ordinary ui.* children.
-- ui.column { gap = 8, align = \"start|center|end\", ... }, ui.row { gap = 12, align, justify = \
-\"start|center|end|between\", wrap = true, ... }, ui.grid { columns = 3, gap = 16, ... }. Any node \
-takes width = px or grow = true inside a row (sliders, charts, tables, canvases, and scenes fill a \
-row's spare width by default), and key = \"name\" to keep its hover or camera when the tree changes \
-shape. A row or column with on_click = function() end is clickable; hover = true gives \
-it the hover wash.\n\
-- ui.text { \"plain \", ui.span { \"bold\", weight = 600, color = \"accent\", mono = true }, size = \
-\"xs|sm|body|lg|xl|2xl\", weight = 400-700, color, mono, italic, align, truncate }, or ui.text \"string\".\n\
-- ui.stat { value = \"182 ms\", label = \"p95 latency\", delta = \"-12%\", tone = \"success\" }: a headline \
-figure over a muted label; tone colors the delta.\n\
-- ui.table { columns = { \"Region\", { label = \"p95\", align = \"end\" } }, rows = { { \"us-east\", 182 }, \
-... } }: laid out like a markdown table (bold header, hairline row rules), numbers right-aligned; cells \
-are strings, numbers, or nodes.\n\
-- ui.chart { type = \"bar|line|area|scatter\", height = 220, x = { labels }, series = { { name, values = \
-{ ... }, color } }, stacked, horizontal (bar), min, max, unit = \"ms\", prefix = \"$\", decimals, legend }. \
-Scatter series take points = { { x, y }, ... } (x_unit, x_decimals). Axes, gridlines, the legend, and a \
-hover readout are built in.\n\
-- ui.rule {} is a hairline divider; ui.space { size = 16 }; ui.link { label, url = \"https://...\" } \
-opens like a chat link.\n\
-- Controls: ui.tabs { options = { ... }, value, on_change = function(option) end }, ui.toggle { label, \
-value = bool, on_change = function(on) end }, ui.slider { label, value, min, max, step, unit, on_change \
-= function(n) end }, ui.button { label, on_click = function() end, primary = bool }.\n\
-- Conversational choices: for a single action use ui.reply { label = "Use this", message = "The user's selected response", primary = true }. For a set of alternatives use ui.choices { title = "Choose an approach", options = { "DOM-first", "Vision-first", "Hybrid" }, value = s.approach, on_change = function(v) s.approach = v end, reply_prefix = "Use ", reply_suffix = " for automation.", submit_label = "Continue" }. Keep s in the top-level ui.state table and build the choices inside the returned view function. Tab changes are drafts; only Continue sends the selected response into this chat, after the reader clicks. Use ui.button for local-only interactions.\n\
-- ui.canvas { height = 240, draw = function(g, w, h, t) ... end, animate = bool, on_click = \
-function(x, y) end }: 2D drawing in pixels, origin top-left, w = the reply column's width. \
-g:line(x1, y1, x2, y2, { color, width, dash }), g:polyline(pts, { color, width }), g:polygon(pts, \
-{ fill, stroke, width }), g:rect(x, y, w, h, { fill, stroke, radius }), g:circle(x, y, r, { fill, \
-stroke }), g:arc(x, y, r, a0, a1, { color } or { fill, inner = radius } for pie and donut sectors; \
-radians clockwise from 3 o'clock), g:text(x, y, str, { size, color, weight, align = \
-\"start|center|end\", baseline = \"top|middle|bottom\", mono }). pts are { x1, y1, x2, y2, ... } or \
-{ { x, y }, ... }. g.pointer is { x, y, down } while the pointer is over the canvas (draw hover \
-effects with it); t is seconds, and animate = true redraws every frame while visible.\n\
-- ui.scene { height = 320, draw = function(s, t) ... end, orbit = true, spin = 0.3 (turntable \
-radians per second), camera = { yaw = 0.6, pitch = 0.45, zoom = 1 }, animate = bool }: real 3D, y up, \
-rendered on the GPU with depth, soft shadows from a key light, and bloom. Zeron frames the camera on \
-your geometry and the reader drags to orbit. Solids (box, sphere, cylinder, surface, mesh) take \
-material props: roughness (0 mirror to 1 matte), metal (0-1), glow (emits its color and blooms; \
-use for lamps, beams, highlights), glass = true (refracts what's behind it; ior = 1.5, dispersion \
-= 0-1 splits it into a rainbow, as a prism does). Build real forms from several primitives (legs, \
-tops, rims), not single boxes, and give materials so surfaces read as wood, metal, or glass. s:box { at = { x, y, z }, size = { w, h, d } or n, color }, s:sphere { at, radius, color }, \
-s:cylinder { at (base center), radius, height, color }, s:surface { x = { min, max }, z = { min, max }, \
-f = function(x, z) return y end or values = { { ... } }, detail = 32, colors = { \"chart1\", \"chart3\" } \
-(a ramp by height), wire = bool }, s:mesh { vertices = { { x, y, z }, ... }, faces = { { 1, 2, 3 }, ... }, \
-color }, s:line(a, b, { color, width }), s:path(points, { color, width }), s:point(at, { radius, \
-color, hint = \"shown on hover\" }), s:label(at, text, { color, size }), s:grid { size = 10, step = 1 }, \
-s:axes { size = 1, labels = { \"x\", \"y\", \"z\" } }. Physical colors may be \"#rrggbb\" in scenes \
-(a material's own color: gold, glass, wood), and only there.\n\
-- Assets: pass real files in show_visual's assets (name -> path) and scripts use them by name. \
-s:model { asset = \"prism.glb\", at, rotate = { x, y, z } degrees, scale, fit = 2 (center it and size \
-its longest side), color and material props override the model's own } draws a glTF model with its \
-materials and textures. Solids take texture = \"wood.jpg\" (multiplied by color; mesh takes uvs = { { u, v \
-}, ... } per vertex). s:environment { asset = \"studio.hdr\", intensity = 1, background = false } lights \
-the scene from an equirectangular image (an HDR is best) that metal and glass reflect and glass bends; \
-background = true also draws it behind the scene. s:sprite { at, size = 48 (pixels), color, glow = 1, \
-asset = \"flare.png\" } adds a camera-facing light (a flare or glint; a soft round glow without an \
-asset) that blooms. ui.shader takes textures = { \"rock.jpg\", ... } as iTexture0-iTexture3 \
-(repeating, mipmapped). Find or make assets with your own tools (download, convert KTX2 or EXR to PNG \
-or HDR) before calling.\n\
-- ui.shader { height = 360, code = [[ GLSL ]], buffers = { [[ GLSL ]], ... }, inputs = { speed = \
-s.speed }, blend = \"alpha|light|opaque\", bloom = 0-3, orbit = bool, spin, camera = { yaw, pitch, \
-zoom }, animate = true }: GPU shaders for what geometry can't express: raymarched SDFs and \
-fractals, light and optics (beams, refraction, dispersion), volumes, fluids, particles, generative \
-art. Write each pass as on Shadertoy: void mainImage(out vec4 fragColor, in vec2 fragCoord), with \
-iResolution (vec3: width and height in pixels, then the display's pixel density), iTime, \
-iTimeDelta, iFrame, iMouse (pixels from the bottom-left; xy where the pointer is, zw where it went \
-down while it's held, negative otherwise), iCamera (vec4 yaw, pitch, zoom, 0; orbit = true lets the reader drag \
-it), every inputs name as a float (bind them to state so sliders and toggles drive the shader), \
-iNoise (a tiling 256x256 random RGBA texture), and iChannel0-iChannel3 with iChannelResolution: \
-buffers run first, in order, each into a float texture that every pass reads as iChannel<i> (an \
-earlier buffer's current frame; a buffer's own previous frame), for multi-pass work like blur, \
-trails, accumulation, and simulation. The shader sits on the chat, never in a box: don't paint a \
-background, vignette, or floor color. By default (blend = \"light\") the output is emitted light: \
-brightness is opacity and black is clear, right for beams, glows, sparks, and light through glass. \
-For solid shaded objects (fractals, SDF bodies) set blend = \"alpha\" and write alpha 0 where the ray \
-misses. bloom = 0.6-1.5 adds a soft glow around bright light. \
-The width varies with the reader (a phone is about 350px wide, often narrower than the shader is \
-tall): scale the scene by min(iResolution.x, iResolution.y), not one axis, and keep the subject \
-centered with room on both sides, so it fits and stays centered at any aspect. \
-GLSL errors come back with the pass and line number.\n\
-- Helpers: ui.scale(d0, d1, r0, r1) returns a mapping function; ui.ticks(lo, hi, n); ui.fmt(n, { unit, \
-prefix, decimals }) groups digits; ui.map(list, function(v, i) end); ui.range(a, b, step); ui.clamp; \
-ui.lerp; ui.series(i) is \"chart<i>\"; ui.color(token, alpha); ui.mix(a, b, t). print(...) output comes \
-back to you.\n\
-\n\
-Colors are theme tokens, never hex or color names (except scene materials): text; muted (labels, axes, captions); faint \
-(tertiary notes); accent (the one thing to notice); on-accent (text on an accent mark); success, \
-warning, danger (status only); border (hairlines, gridlines); chart1, chart2, chart3, chart4, \
-chart5, chart6 (series, in order; \
-chart1 is the accent). They follow the reader's theme, light or dark, on frosted glass or an opaque \
-surface, so never assume a background color.\n\
-\n\
-Style, enforced: layout nodes have no fill, border, shadow, padding, or font props. A visual is part \
-of the reply, not a widget, so lay content directly on the chat with type, spacing, and alignment: no \
-cards, tiles, boxed panels, banners, or canvas backgrounds. Stats are a row of plain ui.stat figures; \
-a chart is a plain heading, then the chart; separate sections with gap or one ui.rule. Text renders \
-in Zeron's interface font at the reader's text size: body for most text, sm and xs for labels and \
-notes, lg and xl for headings, 2xl for a headline figure. The width is the reply column (about 720px, \
-as narrow as 360px), so lay out fluidly with grow, wrap, and grid, and give charts, canvases, and \
-scenes heights of 160-420px.";
+const SHOW_VISUAL_DESCRIPTION: &str = r###"
+MANDATORY INTERACTION CONTRACT
+- When the user explicitly asks for interactive choices, buttons, a form, or an interactive task workflow, call `show_visual` in this turn and render the native controls. A Markdown list is not a substitute for explicitly requested interactive UI.
+- For an undecided choice, use `ui.choices` with its selected value initialized to the empty string (`""`). Leave every option unselected and let the reader click Continue; do not select for them or start dependent work before they respond.
+- If the response depends on the selected project/workspace, use the actual workspace context supplied by Zeron and inspect files only when needed. A failed shell or discovery command is not evidence that the workspace is empty. Never claim to have inspected files unless a command/tool actually returned usable contents; retry with a valid command or state the inspection failed.
+
+Show a native, interactive visual (chart, table, dashboard, diagram, simulation, or 3D view) inline in this chat, above your final text reply. Call this tool before writing that reply whenever a visual communicates more clearly than prose. Do not merely announce or repeat the visual in the final text.
+
+Scripts use Luau (Lua 5.1 plus +=, continue, and if expressions). They run in a sandbox with no I/O or network, a 64 MB memory cap, and a short execution budget. Build data and state at the top level and return a view function. Handlers should update top-level state; Zeron re-renders the view after an interaction. The runtime validates setup, rendering, draw handlers, and each control before displaying the visual. Fix any reported script error and call again.
+
+When a meaningful decision belongs to the user, do not silently pick an option. Use ui.choices with its state initialized to the empty string (for example, approach = ""); the options start unselected and Continue appears only after the reader chooses. Never describe a queued action as completed: show progress from observed results, and mark steps done only after verification. Use ui.form for grouped input with explicit validation and submit; its reply is conversation input, not permission to perform an external action.
+
+Basic example:
+local s = ui.state { metric = "p95" }
+local data = {
+  { region = "us-east", p95 = 182, p99 = 240 },
+  { region = "eu-west", p95 = 140, p99 = 210 },
+}
+return function()
+  return ui.column { gap = 16,
+    ui.text { "Latency by region", size = "lg", weight = 600 },
+    ui.tabs { options = { "p95", "p99" }, value = s.metric, on_change = function(v) s.metric = v end },
+    ui.chart { type = "bar", height = 220, unit = "ms",
+      x = ui.map(data, function(d) return d.region end),
+      series = { { name = s.metric, values = ui.map(data, function(d) return d[s.metric] end) } },
+    },
+  }
+end
+
+Nodes are tagged props tables. Children use the array portion of the table; strings are text, false and nil are skipped, and lists of nodes flatten. Unknown properties are errors.
+
+LAYOUT AND CONTENT
+- ui.card { title = "Optional heading", description = "Supporting text", gap = 8, ...children } creates a native themed card.
+- ui.column { gap = 8, align = "start|center|end", ...children }, ui.row { gap = 12, align, justify = "start|center|end|between", wrap = true, ...children }, and ui.grid { columns = 3, gap = 16, ...children } compose native layouts. Nodes inside rows can use width = px or grow = true. Use key = "name" to keep local hover/camera state stable.
+- ui.text { "plain ", ui.span { "bold", weight = 600, color = "accent", mono = true }, size = "xs|sm|body|lg|xl|2xl", weight = 400-700, color, mono, italic, align, truncate } or ui.text "string".
+- ui.stat { value = "182 ms", label = "p95 latency", delta = "-12%", tone = "success" } shows a main figure with a label and optional change note.
+- ui.table { columns = { "Region", { label = "p95", align = "end" } }, rows = { { "us-east", 182 }, ... } } creates a table; cells may be strings, numbers, or nodes.
+- ui.chart { type = "bar|line|area|scatter", height = 220, x = { labels }, series = { { name, values = { ... }, color } }, stacked, horizontal, min, max, unit = "ms", prefix = "$", decimals, legend }. Scatter series can instead use points = { { x, y }, ... }. Axes, gridlines, legend, and hover readout are native.
+- ui.rule {}, ui.space { size = 16 }, and ui.link { label, url = "https://..." } provide a divider, spacing, and a link.
+
+TASK STATUS, PROGRESS, AND DIFFS
+- ui.status { label = "Building", detail = "Compiling 4 of 6 crates", tone = "info|success|warning|error|neutral" } creates a compact status row. Use only observed details; the label does not itself prove success.
+- ui.progress { label = "Indexing", value = 42, min = 0, max = 60, tone = "info|success|warning|error|neutral", segments = 12, show_value = true } creates a bounded progress indicator. Values and bounds must be finite numbers, max must exceed min, and the displayed value is clamped to the range. Progress is not evidence that work actually happened.
+- ui.diff { file = "src/app.rs", language = "rust", removed = { "old line" }, added = { "new line" } } creates a read-only code-change preview. It shows up to 40 removed and 40 added lines, and notes truncation. It cannot apply patches, open files, or execute commands.
+
+INTERACTION
+- ui.tabs { options = { ... }, value, on_change = function(option) end }, ui.toggle { label, value = bool, on_change = function(on) end }, ui.slider { label, value, min, max, step, unit, on_change = function(n) end }, and ui.button { label, on_click = function() end, primary = bool } are local interactive controls.
+- For one user-selected response, use ui.reply { label = "Use this", message = "The user's selected response", primary = true }. For alternatives, use ui.choices { title = "Choose an approach", description = "Relevant decision context", options = { "DOM-first", "Vision-first", "Hybrid" }, value = s.approach, on_change = function(v) s.approach = v end, reply_prefix = "Use ", reply_suffix = " for automation.", submit_label = "Continue" } with s.approach initialized to "". Empty means no selection and hides Continue. Changing a tab is only a draft; the reader must click Continue to submit. On submit, Zeron sends the question, description, all options, and selected answer into the chat context. Do not invent a default when the choice materially affects the task.
+- Use ui.form { title, description, fields = { ... supported native controls ... }, valid = bool, validation_message, submit_label, message } to group up to 12 native controls. Supported interactive controls include ui.tabs, ui.toggle, and ui.slider; free-text and numeric-entry widgets are not available yet, so do not invent ui.text_input or ui.number_input. Keep draft state at the top level and validate before showing submission. On submit, the title, description, scripted message, and current supported control values are sent together to the chat; use context_label = "Project" on a tabs control when its selection needs a specific name. A form reply is conversation input, not authorization to perform an operation.
+- Use ui.steps { title, description, steps = { { label, detail, state = "done|active|pending|blocked" } } } for a task timeline of up to 12 steps. Only use done after verifying the result. ui.status and ui.progress are state displays; they are not evidence of success. ui.diff is read-only. Prefer ui.button for local-only interactions. A click must not run arbitrary code or bypass the user's original instructions.
+
+DRAWING AND 3D
+- ui.canvas { height = 240, draw = function(g, w, h, t) ... end, animate = bool, on_click = function(x, y) end } draws in pixel coordinates from the top-left. Helpers include g:line, g:polyline, g:polygon, g:rect, g:circle, g:arc and g:text. g.pointer reports pointer coordinates and whether it is down.
+- ui.scene { height = 320, draw = function(s, t) ... end, orbit = true, spin = 0.3, camera = { yaw = 0.6, pitch = 0.45, zoom = 1 }, animate = bool } renders real 3D on the GPU. Use materials and multiple primitives to build convincing forms. Available primitives include s:box, s:sphere, s:cylinder, s:surface, s:mesh, s:line, s:path, s:point, s:label, s:grid and s:axes. Scene material colors may be physical colors such as "#rrggbb"; ordinary UI elements must use theme tokens.
+- Assets can be passed with show_visual's assets argument as a name-to-path map. Supported inputs include glTF models (.glb or self-contained .gltf), PNG, JPEG, WebP, and Radiance HDR images, within the tool's per-file and total-size limits. Use s:model, s:environment, s:sprite and image textures to use loaded assets.
+- ui.shader { height = 360, code = [[ GLSL code ]], buffers = { [[ GLSL code ]], ... }, inputs = { speed = s.speed }, blend = "alpha|light|opaque", bloom = 0-3, animate = true } runs a GPU fragment shader using a Shadertoy-style mainImage function. Available uniforms include iResolution, iTime, iTimeDelta, iFrame, iMouse, iCamera, named numeric inputs, iNoise, and iChannel0-iChannel3. Use light blending for emitted light; use alpha blending for opaque objects with transparent misses. GLSL errors include the pass and line number.
+- Helpers: ui.scale(d0, d1, r0, r1), ui.ticks(lo, hi, n), ui.fmt(n, { unit, prefix, decimals }), ui.map(list, function(v, i) end), ui.range(a, b, step), ui.clamp, ui.lerp, ui.series(i), ui.color(token, alpha), and ui.mix(a, b, t). print(...) output is returned to the agent.
+
+STYLE RULES
+Use theme tokens (text, muted, faint, accent, on-accent, success, warning, danger, border, chart1-chart6) so visuals adapt to the reader's light/dark theme and surface. Physical colors are limited to 3D materials. Avoid arbitrary CSS-like properties, hard-coded container backgrounds, borders, shadows, padding, or fonts. Use transcript type sizes (body for most text, sm/xs for labels, lg/xl for headings, 2xl for a headline) and fluid layouts. The reply column can be as narrow as 360 px, so use wrap, grow and grids appropriately. Charts, canvases and scenes usually work well at 160-420 px high. Simple questions should remain prose; use a visual when it adds real value.
+"###;
 
 /// Read `show_visual`'s asset files (paths relative to the agent's working
 /// directory), base64-encoded by name for the engine.
@@ -1412,6 +1345,7 @@ impl Tools {
                     .unwrap_or_else(|| "~".into());
                 let request = RunRequest {
                     mcp: None,
+                    mcp_servers: Vec::new(),
                     prompt: text,
                     harness: Some(harness),
                     model: config.as_ref().and_then(|c| c.model.clone()),

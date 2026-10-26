@@ -91,17 +91,27 @@ fn resolve_claude_executable() -> Option<PathBuf> {
 
 /// The inline `--mcp-config` JSON for an injected server (the CLI accepts a
 /// JSON string as well as a file path).
-fn mcp_config_arg(mcp: &zeron_proto::McpServer) -> String {
-    serde_json::json!({
-        "mcpServers": {
-            &mcp.name: {
-                "command": mcp.command,
-                "args": mcp.args,
-                "env": mcp.env,
-            }
-        }
-    })
-    .to_string()
+fn mcp_config_arg(servers: &[zeron_proto::McpServer]) -> String {
+    let configured: serde_json::Map<String, Value> = servers
+        .iter()
+        .map(|server| {
+            let config = if let Some(url) = server.url.as_deref() {
+                let mut remote = serde_json::json!({ "type": "http", "url": url });
+                if !server.headers.is_empty() {
+                    remote["headers"] = serde_json::json!(server.headers);
+                }
+                remote
+            } else {
+                serde_json::json!({
+                    "command": server.command,
+                    "args": server.args,
+                    "env": server.env,
+                })
+            };
+            (server.name.clone(), config)
+        })
+        .collect();
+    serde_json::json!({ "mcpServers": configured }).to_string()
 }
 
 /// The `--model` value: the 1M context window is selected via a model-id
@@ -612,11 +622,16 @@ impl ClaudeHarness {
                 "--setting-sources",
                 "",
             ]);
-        } else if let Some(mcp) = &request.mcp {
-            // Zeron's own server rides beside the user's configured servers
-            // (no `--strict-mcp-config`): the CLI merges an inline JSON
-            // config with settings-sourced ones.
-            cmd.args(["--mcp-config", &mcp_config_arg(mcp)]);
+        } else {
+            // Merge user-configured stdio servers with the chat-scoped Zeron
+            // delegation server. Keep ambient CLI settings enabled as before.
+            let mut servers = request.mcp_servers.clone();
+            if let Some(mcp) = &request.mcp {
+                servers.push(mcp.clone());
+            }
+            if !servers.is_empty() {
+                cmd.args(["--mcp-config", &mcp_config_arg(&servers)]);
+            }
         }
         let normalizer = if let Some(session_id) = &request.resume {
             let config = crate::model_context::root(
@@ -1523,6 +1538,22 @@ mod mcp_injection_tests {
     use super::*;
 
     #[test]
+    fn mcp_config_arg_uses_http_transport_for_remote_servers() {
+        let server = zeron_proto::McpServer {
+            name: "sheet".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:4317/mcp".into()),
+            headers: [("X-Test".into(), "value".into())].into_iter().collect(),
+        };
+        let parsed: Value = serde_json::from_str(&mcp_config_arg(&[server])).unwrap();
+        assert_eq!(parsed["mcpServers"]["sheet"]["type"], "http");
+        assert_eq!(parsed["mcpServers"]["sheet"]["url"], "http://127.0.0.1:4317/mcp");
+        assert_eq!(parsed["mcpServers"]["sheet"]["headers"]["X-Test"], "value");
+    }
+
+    #[test]
     fn mcp_config_arg_spells_the_server_the_way_the_cli_reads_it() {
         let mcp = zeron_proto::McpServer {
             name: "zeron".into(),
@@ -1531,8 +1562,10 @@ mod mcp_injection_tests {
             env: [("ZERON_CHAT_ID".to_owned(), "chat-1".to_owned())]
                 .into_iter()
                 .collect(),
-        };
-        let parsed: Value = serde_json::from_str(&mcp_config_arg(&mcp)).unwrap();
+        
+            url: None,
+            headers: Default::default(),};
+        let parsed: Value = serde_json::from_str(&mcp_config_arg(&[mcp])).unwrap();
         assert_eq!(parsed["mcpServers"]["zeron"]["command"], "/opt/zeron/zeron");
         assert_eq!(
             parsed["mcpServers"]["zeron"]["args"],

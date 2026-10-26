@@ -19,14 +19,17 @@ use zeron_proto::{AuthState, WorkspaceScope};
 pub mod accounts;
 pub mod appearance;
 pub mod archived;
+pub mod artifacts;
 pub mod billing;
 pub mod cloud;
 pub mod composer;
 pub mod devices;
 pub mod files;
 pub mod harnesses;
+pub mod mcps;
 pub mod notifications;
 pub mod shortcuts;
+pub mod skills;
 pub mod thread_naming;
 pub mod wallpaper;
 pub mod wallpaper_colors;
@@ -953,6 +956,42 @@ impl WindowGeometry {
     }
 }
 
+/// One user-configured stdio MCP server. Environment values are stored in the
+/// device-local UI settings file and passed only to newly started runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ConfiguredMcpServer {
+    pub name: String,
+    /// Stdio executable. Empty only when `url` selects Streamable HTTP.
+    pub command: String,
+    pub args: Vec<String>,
+    /// Environment variables for a stdio child process.
+    pub env: std::collections::BTreeMap<String, String>,
+    /// Absolute Streamable HTTP MCP endpoint, for example
+    /// `http://127.0.0.1:4317/mcp`. Mutually exclusive with `command`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// HTTP headers for a remote MCP server. Treat these as credentials.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
+    /// Disabled by default for backward-compatible, fail-closed configuration.
+    pub enabled: bool,
+}
+
+impl Default for ConfiguredMcpServer {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            args: Vec::new(),
+            env: std::collections::BTreeMap::new(),
+            url: None,
+            headers: std::collections::BTreeMap::new(),
+            enabled: false,
+        }
+    }
+}
+
 /// Trigger preferences belong to each harness, not the currently selected model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1076,6 +1115,9 @@ pub struct UiSettings {
     /// Desktop banners for newly discovered agent CLI releases. In-app chips
     /// remain enabled independently of this preference.
     pub agent_update_notifications: bool,
+    /// User-managed MCP servers injected into new coding-agent runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_servers: Vec<ConfiguredMcpServer>,
     pub right_pane_width: f32,
     /// Width of the pull request pane beside the board.
     pub pull_request_pane_width: f32,
@@ -1241,6 +1283,7 @@ impl Default for UiSettings {
             notifications_background_only: true,
             files_panel_width: FILES_PANEL_DEFAULT,
             agent_update_notifications: true,
+            mcp_servers: Vec::new(),
             right_pane_width: RIGHT_PANE_DEFAULT,
             pull_request_pane_width: PULL_REQUEST_PANE_DEFAULT,
             right_pane_open: false,
@@ -1898,6 +1941,7 @@ impl UiSettings {
             notifications_background_only,
             files_panel_width,
             agent_update_notifications,
+            mcp_servers,
             right_pane_width,
             pull_request_pane_width,
             right_pane_open,
@@ -2978,6 +3022,7 @@ mod tests {
             notifications_background_only: false,
             files_panel_width: 310.0,
             agent_update_notifications: false,
+            mcp_servers: Vec::new(),
             right_pane_width: 700.0,
             pull_request_pane_width: 820.0,
             right_pane_open: true,

@@ -9182,6 +9182,26 @@ impl Composer {
         }
         cx.notify();
 
+        // MCP server configurations are device-local. Never send this
+        // computer's executable paths, endpoint URLs, environment values, or
+        // HTTP headers to a remotely hosted chat.
+        let configured_mcp_servers: Vec<zeron_proto::McpServer> = if host_is_remote {
+            Vec::new()
+        } else {
+            crate::settings::current(cx)
+                .mcp_servers
+                .into_iter()
+                .filter(|server| server.enabled)
+                .map(|server| zeron_proto::McpServer {
+                    name: server.name,
+                    command: server.command,
+                    args: server.args,
+                    env: server.env,
+                    url: server.url,
+                    headers: server.headers,
+                })
+                .collect()
+        };
         let restore_text = typed;
         let err_chat_id = chat_id.clone();
         let err_message_id = message_id.clone();
@@ -9543,6 +9563,7 @@ impl Composer {
                 let command = SessionCommandPayload::Run {
                     request: RunRequest {
                         mcp: None,
+                        mcp_servers: configured_mcp_servers,
                         prompt: content.clone(),
                         harness: resolved.harness,
                         model: resolved.model.clone(),

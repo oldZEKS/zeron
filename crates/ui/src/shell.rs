@@ -43,11 +43,14 @@ use crate::rail;
 use crate::settings::accounts::AccountsPage;
 use crate::settings::appearance::{AppearancePage, AppearanceSettingsEvent};
 use crate::settings::archived::ArchivedPage;
+use crate::settings::artifacts::ArtifactsPage;
 use crate::settings::billing::BillingPage;
 use crate::settings::cloud::CloudPage;
 use crate::settings::devices::DevicesPage;
 use crate::settings::files::{FilesSettingsEvent, FilesSettingsPage};
 use crate::settings::harnesses::HarnessesPage;
+use crate::settings::mcps::McpsPage;
+use crate::settings::skills::SkillsPage;
 use crate::settings::notifications::{NotificationsEvent, NotificationsPage};
 use crate::settings::shortcuts::{ShortcutsEvent, ShortcutsPage};
 use crate::settings::{
@@ -556,27 +559,39 @@ pub enum SettingsSection {
     Notifications,
     Voice,
     Shortcuts,
+    /// Skills discovered from installed coding-agent harnesses.
+    Skills,
     /// Composer and conversation behavior plus thread naming.
     #[default]
     General,
+    /// Application version and self-update preferences.
+    Info,
+    /// User-managed MCP servers injected into coding-agent runs.
+    McpServers,
+    /// Browse generated files in the selected workspace.
+    Artifacts,
     Appshots,
     Archived,
 }
 
 impl SettingsSection {
     /// Sections shown in Settings. `Agents` is a legacy Accounts route alias.
-    pub const ALL: [SettingsSection; 12] = [
+    pub const ALL: [SettingsSection; 16] = [
         SettingsSection::General,
         SettingsSection::Appearance,
         SettingsSection::Notifications,
         SettingsSection::Voice,
         SettingsSection::Shortcuts,
+        SettingsSection::Skills,
         SettingsSection::Harnesses,
+        SettingsSection::McpServers,
         SettingsSection::Devices,
         SettingsSection::Cloud,
         SettingsSection::Billing,
         SettingsSection::Files,
+        SettingsSection::Artifacts,
         SettingsSection::Appshots,
+        SettingsSection::Info,
         SettingsSection::Archived,
     ];
 
@@ -627,10 +642,14 @@ impl SettingsSection {
             SettingsSection::Agents => "agents",
             SettingsSection::Appearance => "appearance",
             SettingsSection::Files => "files",
+            SettingsSection::Artifacts => "artifacts",
             SettingsSection::Notifications => "notifications",
             SettingsSection::Voice => "voice",
             SettingsSection::Shortcuts => "shortcuts",
+            SettingsSection::Skills => "skills",
             SettingsSection::General => "general",
+            SettingsSection::Info => "info",
+            SettingsSection::McpServers => "mcps",
             SettingsSection::Appshots => "appshots",
             SettingsSection::Archived => "archived",
         }
@@ -646,20 +665,25 @@ impl SettingsSection {
             "agents" => SettingsSection::Agents,
             "appearance" => SettingsSection::Appearance,
             "files" => SettingsSection::Files,
+            "artifacts" | "outputs" => SettingsSection::Artifacts,
             "notifications" => SettingsSection::Notifications,
             "voice" => SettingsSection::Voice,
             "shortcuts" => SettingsSection::Shortcuts,
+            "skills" => SettingsSection::Skills,
             "general" | "conversations" => SettingsSection::General,
+            "info" | "about" => SettingsSection::Info,
+            "mcps" | "mcp-servers" => SettingsSection::McpServers,
             "appshots" => SettingsSection::Appshots,
             "archived" => SettingsSection::Archived,
             _ => return None,
         })
     }
 
-    /// Nav groups are separated by spacing alone: preferences, providers and
-    /// devices, then workspace data.
+    /// Start a new visual group in Settings: preferences, agent tools/providers,
+    /// devices/account, then workspace files and artifacts. Skills, Providers and
+    /// MCP Servers intentionally stay together; Files and Artifacts stay together.
     fn starts_nav_group(self) -> bool {
-        matches!(self, Self::Harnesses | Self::Files)
+        matches!(self, Self::Skills | Self::Devices | Self::Files)
     }
 
     /// Sidebar + header label (zeron settings-sidebar.tsx SECTIONS / __root.tsx
@@ -673,10 +697,14 @@ impl SettingsSection {
             SettingsSection::Agents => "Accounts",
             SettingsSection::Appearance => "Appearance",
             SettingsSection::Files => "Files",
+            SettingsSection::Artifacts => "Artifacts",
             SettingsSection::Notifications => "Notifications",
             SettingsSection::Voice => "Voice",
             SettingsSection::Shortcuts => "Shortcuts",
+            SettingsSection::Skills => "Skills",
             SettingsSection::General => "General",
+            SettingsSection::Info => "Info",
+            SettingsSection::McpServers => "MCP Servers",
             SettingsSection::Appshots => "Appshots",
             SettingsSection::Archived => "Archived sessions",
         }
@@ -2129,6 +2157,9 @@ pub struct Shell {
     archived_page: Option<Entity<ArchivedPage>>,
     appearance_page: Option<Entity<AppearancePage>>,
     files_settings_page: Option<Entity<FilesSettingsPage>>,
+    skills_page: Option<Entity<SkillsPage>>,
+    artifacts_page: Option<Entity<ArtifactsPage>>,
+    mcps_page: Option<Entity<McpsPage>>,
     notifications_page: Option<Entity<NotificationsPage>>,
     shortcuts_page: Option<Entity<ShortcutsPage>>,
     accounts_page: Option<Entity<AccountsPage>>,
@@ -2675,6 +2706,9 @@ impl Shell {
             archived_page: None,
             appearance_page: None,
             files_settings_page: None,
+            skills_page: None,
+            artifacts_page: None,
+            mcps_page: None,
             notifications_page: None,
             shortcuts_page: None,
             accounts_page: None,
@@ -5822,6 +5856,35 @@ impl Shell {
                     None => Empty.into_any_element(),
                 }
             }
+            SettingsSection::Skills => {
+                if self.skills_page.is_none() {
+                    let state = self.state.clone();
+                    self.skills_page = Some(cx.new(|cx| SkillsPage::new(state, cx)));
+                }
+                match &self.skills_page {
+                    Some(page) => page.clone().into_any_element(),
+                    None => Empty.into_any_element(),
+                }
+            }
+            SettingsSection::Artifacts => {
+                if self.artifacts_page.is_none() {
+                    let state = self.state.clone();
+                    self.artifacts_page = Some(cx.new(|cx| ArtifactsPage::new(state, cx)));
+                }
+                match &self.artifacts_page {
+                    Some(page) => page.clone().into_any_element(),
+                    None => Empty.into_any_element(),
+                }
+            }
+            SettingsSection::McpServers => {
+                if self.mcps_page.is_none() {
+                    self.mcps_page = Some(cx.new(|cx| McpsPage::new(cx)));
+                }
+                match &self.mcps_page {
+                    Some(page) => page.clone().into_any_element(),
+                    None => Empty.into_any_element(),
+                }
+            }
             SettingsSection::Notifications => {
                 if self.notifications_page.is_none() {
                     let page = cx.new(|cx| {
@@ -5899,7 +5962,7 @@ impl Shell {
                 }
                 card.into_any_element()
             }
-            SettingsSection::Shortcuts | SettingsSection::General | SettingsSection::Appshots => {
+            SettingsSection::Shortcuts | SettingsSection::General | SettingsSection::Info | SettingsSection::Appshots => {
                 if self.shortcuts_page.is_none() {
                     let state = self.state.clone();
                     let keymap = self.settings.keymap.clone();
@@ -5963,6 +6026,7 @@ impl Shell {
                             page.show_section(
                                 section == SettingsSection::Appshots,
                                 section == SettingsSection::General,
+                                section == SettingsSection::Info,
                             )
                         });
                         page.clone().into_any_element()
@@ -8484,8 +8548,12 @@ impl Shell {
             SettingsSection::Notifications => icons::BELL,
             SettingsSection::Voice => icons::MICROPHONE,
             SettingsSection::Shortcuts => icons::KEYBOARD,
+            SettingsSection::Skills => icons::WIDGET,
             SettingsSection::General => icons::SETTINGS,
             SettingsSection::Appshots => icons::MONITOR,
+            SettingsSection::Artifacts => icons::FOLDER,
+            SettingsSection::Info => icons::SETTINGS,
+            SettingsSection::McpServers => icons::WIDGET,
             SettingsSection::Archived => icons::ARCHIVE_MINIMALISTIC,
         };
         settings::widgets::scroll_faded(
@@ -19111,9 +19179,14 @@ mod settings_modal_regressions {
             ("settings/agents", SettingsSection::Harnesses),
             ("settings/harnesses", SettingsSection::Harnesses),
             ("settings/general", SettingsSection::General),
+            ("settings/info", SettingsSection::Info),
             ("settings/voice", SettingsSection::Voice),
             ("settings/conversations", SettingsSection::General),
+            ("settings/skills", SettingsSection::Skills),
+            ("settings/mcps", SettingsSection::McpServers),
+            ("settings/mcp-servers", SettingsSection::McpServers),
             ("settings/files", SettingsSection::Files),
+            ("settings/artifacts", SettingsSection::Artifacts),
             ("settings/appshots", SettingsSection::Appshots),
             ("settings/archived", SettingsSection::Archived),
         ] {

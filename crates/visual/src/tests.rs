@@ -423,6 +423,7 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         return function()
           return ui.choices {
             title = "Choose an approach",
+            description = "Compare ease, accuracy, and robustness.",
             options = { "DOM-first", "Vision-first", "Hybrid" },
             value = s.approach,
             on_change = function(v) s.approach = v end,
@@ -448,7 +449,10 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
         (on_change, reply.clone())
     };
-    assert_eq!(reply.as_deref(), Some("Use Hybrid for automation."));
+    assert_eq!(
+        reply.as_deref(),
+        Some("Question: Choose an approach\nContext: Compare ease, accuracy, and robustness.\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Hybrid for automation.")
+    );
 
     visual.call(tab_handler, HandlerArg::Text("Vision-first".into())).unwrap();
     let updated = visual.render().unwrap();
@@ -457,7 +461,10 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         NodeKind::Button { reply: Some(_), .. }
     )).unwrap();
     let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
-    assert_eq!(reply.as_deref(), Some("Use Vision-first for automation."));
+    assert_eq!(
+        reply.as_deref(),
+        Some("Question: Choose an approach\nContext: Compare ease, accuracy, and robustness.\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Vision-first for automation.")
+    );
 
     for script in [
         r#"return ui.choices { options = {}, value = "x", on_change = function() end }"#,
@@ -572,3 +579,242 @@ fn missing_and_broken_assets_fail_the_check_with_their_names() {
         error.message
     );
 }
+
+#[test]
+fn status_progress_and_diff_helpers_render_as_native_compositions() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.column { gap = 12,
+            ui.status {
+              label = "Connected",
+              detail = "Synced to this device",
+              tone = "success",
+            },
+            ui.progress {
+              label = "Build",
+              value = 75,
+              max = 100,
+              tone = "success",
+            },
+            ui.diff {
+              file = "src/app.rs",
+              language = "rust",
+              removed = { "let retries = 0;" },
+              added = { "let retries = 1;" },
+            },
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let tree = visual.render().unwrap();
+    assert!(text_of(&tree).contains("Connected"));
+    assert!(text_of(&tree).contains("75%"));
+    assert!(text_of(&tree).contains("let retries = 0;"));
+    assert!(text_of(&tree).contains("let retries = 1;"));
+
+    let NodeKind::Stack(root) = &tree.kind else {
+        panic!("expected root column");
+    };
+    assert_eq!(root.children.len(), 3);
+    let NodeKind::Stack(status) = &root.children[0].kind else {
+        panic!("expected status to expand to a native row");
+    };
+    assert_eq!(status.axis, Axis::Horizontal);
+
+    let NodeKind::Stack(progress) = &root.children[1].kind else {
+        panic!("expected progress to expand to a native column");
+    };
+    assert_eq!(progress.axis, Axis::Vertical);
+    assert_eq!(progress.children.len(), 2);
+
+    let NodeKind::Card { title, children, .. } = &root.children[2].kind else {
+        panic!("expected diff to render in a native card");
+    };
+    assert_eq!(title.as_deref(), Some("src/app.rs"));
+    assert_eq!(children.len(), 2);
+}
+
+#[test]
+fn progress_component_rejects_an_invalid_range() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.progress { label = "Invalid", value = 1, min = 10, max = 0 }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let error = visual.render().unwrap_err();
+    assert!(
+        error.message.contains("max greater than min"),
+        "{}",
+        error.message
+    );
+}
+
+
+#[test]
+fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { project = "", budget = 250 }
+        return function()
+          local valid = string.match(s.project, "%S") ~= nil and s.budget > 0
+          return ui.form {
+            title = "Project setup",
+            description = "Choose the project and set a budget before continuing.",
+            fields = {
+              ui.column {
+                ui.text "Project",
+                ui.tabs {
+                  options = { "Macaneta", "Maputo" },
+                  context_label = "Project",
+                  value = s.project,
+                  on_change = function(v) s.project = v end,
+                },
+              },
+              ui.column {
+                ui.text "Budget (MZN)",
+                ui.slider {
+                  label = "Budget",
+                  value = s.budget,
+                  min = 0,
+                  max = 1000,
+                  step = 50,
+                  on_change = function(v) s.budget = v end,
+                },
+              },
+            },
+            valid = valid,
+            validation_message = "Choose a project and a positive budget.",
+            submit_label = "Submit project",
+            message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let initial = visual.render().unwrap();
+    assert!(matches!(
+        &initial.kind,
+        NodeKind::Card { title: Some(title), .. } if title == "Project setup"
+    ));
+    assert!(text_of(&initial).contains("Choose a project"));
+    let tabs = find(&initial, &|node| matches!(
+        &node.kind,
+        NodeKind::Tabs { value, .. } if value.is_empty()
+    )).expect("project choices should begin unselected");
+    let NodeKind::Tabs { on_change, .. } = &tabs.kind else {
+        unreachable!()
+    };
+    visual.call(*on_change, HandlerArg::Text("Macaneta".into())).unwrap();
+
+    let updated = visual.render().unwrap();
+    let submit = find(&updated, &|node| matches!(
+        &node.kind,
+        NodeKind::Button { label, reply: Some(_), .. } if label == "Submit project"
+    ))
+    .expect("valid form should expose an explicit conversational reply");
+    let NodeKind::Button { reply, .. } = &submit.kind else {
+        unreachable!()
+    };
+    let reply = reply.as_deref().unwrap();
+    assert!(reply.contains("Form: Project setup"));
+    assert!(reply.contains("Context: Choose the project and set a budget before continuing."));
+    assert!(reply.contains("Project: Macaneta\nBudget (MZN): 250"));
+    assert!(reply.contains("Project: Macaneta (options: Macaneta | Maputo)"));
+    assert!(reply.contains("Budget: 250"));
+}
+
+#[test]
+fn steps_component_renders_status_and_rejects_unknown_states() {
+    let mut visual = Visual::load(
+        r#"
+        return function()
+          return ui.steps {
+            title = "Deployment",
+            steps = {
+              { label = "Build", detail = "Compiled successfully", state = "done" },
+              { label = "Review", detail = "Waiting for approval", state = "active" },
+              { label = "Publish", state = "pending" },
+            },
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+    let tree = visual.render().unwrap();
+    assert!(matches!(
+        &tree.kind,
+        NodeKind::Card { title: Some(title), .. } if title == "Deployment"
+    ));
+    assert!(text_of(&tree).contains("Compiled successfully"));
+    assert!(text_of(&tree).contains("Waiting for approval"));
+    assert!(text_of(&tree).contains("Publish"));
+    let NodeKind::Card { children, .. } = &tree.kind else {
+        panic!("expected native card");
+    };
+    assert_eq!(children.len(), 3);
+
+    let mut invalid = Visual::load(
+        r#"return function()
+          return ui.steps { steps = { { label = "Ship", state = "unknown" } } }
+        end"#,
+        1,
+    )
+    .unwrap();
+    let error = invalid.render().unwrap_err();
+    assert!(error.message.contains("ui.steps state"), "{}", error.message);
+}
+
+#[test]
+fn choice_group_starts_unselected_and_does_not_submit_a_default() {
+    let mut visual = Visual::load(
+        r#"
+        local s = ui.state { approach = "" }
+        return function()
+          return ui.choices {
+            title = "Choose an approach",
+            options = { "DOM-first", "Vision-first", "Hybrid" },
+            value = s.approach,
+            on_change = function(v) s.approach = v end,
+            reply_prefix = "Use ",
+            reply_suffix = " for browser automation.",
+            submit_label = "Continue",
+          }
+        end
+        "#,
+        1,
+    )
+    .unwrap();
+
+    let initial = visual.render().unwrap();
+    assert!(text_of(&initial).contains("Choose an option to continue."));
+    assert!(!text_of(&initial).contains("Continue"));
+    let tabs = find(&initial, &|node| matches!(&node.kind, NodeKind::Tabs { value, .. } if value.is_empty()))
+        .expect("choice tabs must begin without a selected value");
+    let NodeKind::Tabs { on_change, .. } = &tabs.kind else {
+        unreachable!()
+    };
+    visual.call(*on_change, HandlerArg::Text("Vision-first".into())).unwrap();
+
+    let selected = visual.render().unwrap();
+    let submit = find(&selected, &|node| matches!(
+        &node.kind,
+        NodeKind::Button { label, reply: Some(_), .. } if label == "Continue"
+    ))
+    .expect("selected choice should expose an explicit conversational reply");
+    let NodeKind::Button { reply, .. } = &submit.kind else {
+        unreachable!()
+    };
+    assert_eq!(reply.as_deref(), Some("Use Vision-first for browser automation."));
+}
+

@@ -301,11 +301,21 @@ impl OpencodeHarness {
         mcp: Option<&zeron_proto::McpServer>,
         run_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Server, HarnessError> {
+        let servers = mcp.cloned().into_iter().collect::<Vec<_>>();
+        self.server_with_servers_env(cwd, &servers, run_env).await
+    }
+
+    async fn server_with_servers_env(
+        &self,
+        cwd: Option<&str>,
+        mcp_servers: &[zeron_proto::McpServer],
+        run_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Server, HarnessError> {
         if let Some(base) = &self.base_url {
             return Ok(Server::attached(base.clone()));
         }
         let exe = self.resolve_executable()?;
-        Server::spawn_with_env(&exe, cwd, self.startup_timeout, mcp, run_env).await
+        Server::spawn_with_servers_env(&exe, cwd, self.startup_timeout, mcp_servers, run_env).await
     }
 
     /// One short-lived server answers both discovery calls. Also primes the
@@ -478,8 +488,12 @@ impl Harness for OpencodeHarness {
         let initial_native_command_selected = selected_native_command(&request.prompt, self.id());
         request.prompt = zeron_proto::invocation::harness_prompt(&request.prompt, self.id());
         let cwd = (!request.cwd.is_empty()).then(|| request.cwd.clone());
+        let mut mcp_servers = request.mcp_servers.clone();
+        if let Some(mcp) = &request.mcp {
+            mcp_servers.push(mcp.clone());
+        }
         let server = self
-            .server_with_env(cwd.as_deref(), request.mcp.as_ref(), &request.env)
+            .server_with_servers_env(cwd.as_deref(), &mcp_servers, &request.env)
             .await?;
         let (event_tx, event_rx) = mpsc::channel::<Result<AgentEvent, HarnessError>>(256);
         tokio::spawn(run_session(Session {
@@ -640,6 +654,17 @@ impl Server {
         mcp: Option<&zeron_proto::McpServer>,
         run_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self, HarnessError> {
+        let servers = mcp.cloned().into_iter().collect::<Vec<_>>();
+        Self::spawn_with_servers_env(exe, cwd, startup, &servers, run_env).await
+    }
+
+    async fn spawn_with_servers_env(
+        exe: &std::path::Path,
+        cwd: Option<&str>,
+        startup: Duration,
+        mcp_servers: &[zeron_proto::McpServer],
+        run_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, HarnessError> {
         let port = free_localhost_port().ok_or_else(|| {
             HarnessError::Protocol("no free localhost port for opencode serve".into())
         })?;
@@ -655,7 +680,7 @@ impl Server {
             .env("OPENCODE_PASSWORD", &password)
             .env("OPENCODE_SERVER_PASSWORD", &password)
             .env("OPENCODE_CLIENT", "zeron");
-        if let Some(mcp) = mcp {
+        if !mcp_servers.is_empty() {
             // The config shape differs by generation. If even the cold probe
             // can't tell, run without the Zeron MCP server rather than fail.
             match opencode_version(exe).await {
@@ -667,16 +692,16 @@ impl Server {
                     };
                     cmd.env(
                         "OPENCODE_CONFIG_CONTENT",
-                        mcp_config(
+                        mcp_config_many(
                             std::env::var("OPENCODE_CONFIG_CONTENT").ok().as_deref(),
-                            mcp,
+                            mcp_servers,
                             protocol,
                         )?,
                     );
                 }
                 None => tracing::warn!(
                     binary_path = %exe.display(),
-                    "opencode version unknown; starting without the Zeron MCP server"
+                    "opencode version unknown; starting without MCP injection"
                 ),
             }
         }
@@ -4642,6 +4667,14 @@ fn mcp_config(
     mcp: &zeron_proto::McpServer,
     protocol: Protocol,
 ) -> Result<String, HarnessError> {
+    mcp_config_many(inherited, std::slice::from_ref(mcp), protocol)
+}
+
+fn mcp_config_many(
+    inherited: Option<&str>,
+    mcp_servers: &[zeron_proto::McpServer],
+    protocol: Protocol,
+) -> Result<String, HarnessError> {
     let mut config: Value = match inherited.filter(|s| !s.trim().is_empty()) {
         Some(raw) => deser_hjson::from_str(raw).map_err(|_| {
             HarnessError::Protocol("OPENCODE_CONFIG_CONTENT must be a valid config object".into())
@@ -4666,15 +4699,38 @@ fn mcp_config(
     let servers = servers.as_object_mut().ok_or_else(|| {
         HarnessError::Protocol("OPENCODE_CONFIG_CONTENT.mcp must be an object".into())
     })?;
-    let command: Vec<&str> = std::iter::once(mcp.command.as_str())
-        .chain(mcp.args.iter().map(String::as_str))
-        .collect();
-    let mut server = json!({"type": "local", "command": command, "environment": mcp.env});
-    match protocol {
-        Protocol::V1 => server["enabled"] = json!(true),
-        Protocol::V2 => server["disabled"] = json!(false),
+    for mcp in mcp_servers {
+        let mut server = if let Some(url) = mcp.url.as_deref() {
+            // OpenCode's V1 and V2 config shapes differ only in the location of
+            // the server map; remote transport fields are otherwise identical.
+            let mut remote = json!({ "type": "remote", "url": url });
+            if !mcp.headers.is_empty() {
+                remote["headers"] = json!(mcp.headers);
+            }
+            // Expose the actual tool contracts to the model. Code Mode is
+            // useful for broad catalogs but hides individual MCP tool names
+            // behind a generated wrapper, which makes small task-specific
+            // servers harder for the agent to discover and invoke.
+            if protocol == Protocol::V2 {
+                remote["codemode"] = json!(false);
+            }
+            remote
+        } else {
+            let command: Vec<&str> = std::iter::once(mcp.command.as_str())
+                .chain(mcp.args.iter().map(String::as_str))
+                .collect();
+            json!({
+                "type": "local",
+                "command": command,
+                "environment": mcp.env
+            })
+        };
+        match protocol {
+            Protocol::V1 => server["enabled"] = json!(true),
+            Protocol::V2 => server["disabled"] = json!(false),
+        }
+        servers.insert(mcp.name.clone(), server);
     }
-    servers.insert(mcp.name.clone(), server);
     Ok(config.to_string())
 }
 
@@ -4715,7 +4771,9 @@ http.createServer((req, res) => {{
                 command: "/path with spaces/zeron".into(),
                 args: vec!["mcp".into()],
                 env: [("ZERON_CHAT_ID".into(), "first".into())].into(),
-            };
+            
+            url: None,
+            headers: Default::default(),};
             let mut second = first.clone();
             second.env.insert("ZERON_CHAT_ID".into(), "second".into());
             let mut a = Server::spawn(
@@ -4773,7 +4831,9 @@ http.createServer((req, res) => {
             command: "zeron".into(),
             args: vec!["mcp".into()],
             env: Default::default(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         let mut server = Server::spawn(
             &exe,
             fixture.path().to_str(),
@@ -4830,7 +4890,9 @@ if (process.argv.includes('--version')) {{
             command: "zeron".into(),
             args: vec!["mcp".into()],
             env: Default::default(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         for _ in 0..2 {
             let mut server = Server::spawn(
                 &exe,
@@ -4850,13 +4912,51 @@ if (process.argv.includes('--version')) {{
     }
 
     #[test]
+    fn remote_mcp_injection_preserves_url_and_headers_for_both_protocols() {
+        let mcp = zeron_proto::McpServer {
+            name: "sheet".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:4317/mcp".into()),
+            headers: [("Authorization".into(), "Bearer test-token".into())]
+                .into_iter()
+                .collect(),
+        };
+        for protocol in [Protocol::V1, Protocol::V2] {
+            let inherited = match protocol {
+                Protocol::V1 => r#"{"model":"keep","mcp":{"other":{"type":"remote","url":"https://example.test/mcp"}}}"#,
+                Protocol::V2 => r#"{"model":"keep","mcp":{"servers":{"other":{"type":"remote","url":"https://example.test/mcp"}}}}"#,
+            };
+            let value: Value = serde_json::from_str(
+                &mcp_config(Some(inherited), &mcp, protocol).unwrap(),
+            )
+            .unwrap();
+            let pointer = if protocol == Protocol::V1 { "/mcp/sheet" } else { "/mcp/servers/sheet" };
+            let server = value.pointer(pointer).unwrap();
+            assert_eq!(server["type"], "remote");
+            assert_eq!(server["url"], "http://127.0.0.1:4317/mcp");
+            assert_eq!(server["headers"]["Authorization"], "Bearer test-token");
+            assert_eq!(value["model"], "keep");
+            assert!(value.pointer(if protocol == Protocol::V1 { "/mcp/other" } else { "/mcp/servers/other" }).is_some());
+            if protocol == Protocol::V1 {
+                assert_eq!(server["enabled"], true);
+            } else {
+                assert_eq!(server["disabled"], false);
+            }
+        }
+    }
+
+    #[test]
     fn mcp_injection_preserves_config_and_scopes_identity_for_both_protocols() {
         let mut mcp = zeron_proto::McpServer {
             name: "zeron".into(),
             command: "/path with spaces/zeron".into(),
             args: vec!["mcp".into()],
             env: [("ZERON_CHAT_ID".into(), "first".into())].into(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         for protocol in [Protocol::V1, Protocol::V2] {
             let inherited = match protocol {
                 Protocol::V1 => {

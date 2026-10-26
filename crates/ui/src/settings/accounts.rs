@@ -40,6 +40,26 @@ use crate::theme::Theme;
 pub const USAGE_WARN_FRACTION: f32 = 0.80;
 pub const USAGE_CRITICAL_FRACTION: f32 = 0.95;
 
+/// Keep an account snapshot usable when a newer peer advertises providers this
+/// build does not know. Unknown rows are not selectable here, so ignore them
+/// before decoding the strongly typed account model.
+pub(crate) fn parse_agent_accounts_snapshot(
+    mut value: serde_json::Value,
+) -> Result<AgentAccountsSnapshot, serde_json::Error> {
+    if let Some(object) = value.as_object_mut() {
+        for field in ["accounts", "warnings"] {
+            if let Some(serde_json::Value::Array(rows)) = object.get_mut(field) {
+                rows.retain(|row| {
+                    row.get("harness")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none_or(|slug| HarnessId::from_slug(slug).is_some())
+                });
+            }
+        }
+    }
+    serde_json::from_value(value)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsageLevel {
     /// < 80% — indigo.
@@ -684,8 +704,7 @@ impl AccountsPage {
                         .await
                         .map_err(|err| err.to_string())
                         .and_then(|value| {
-                            serde_json::from_value::<AgentAccountsSnapshot>(value)
-                                .map_err(|err| err.to_string())
+                            parse_agent_accounts_snapshot(value).map_err(|err| err.to_string())
                         })
                 }
             };
@@ -756,7 +775,7 @@ impl AccountsPage {
             let result = engine.client().call(method, params).await;
             this.update(cx, |page, cx| {
                 page.busy_account = None;
-                match result.map(serde_json::from_value::<AgentAccountsSnapshot>) {
+                match result.map(parse_agent_accounts_snapshot) {
                     Ok(Ok(snapshot)) => {
                         cx.default_global::<AccountsSnapshotCache>()
                             .0
@@ -2346,6 +2365,28 @@ impl Render for AccountsPage {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_provider_rows_do_not_break_account_snapshot() {
+        let snapshot = parse_agent_accounts_snapshot(serde_json::json!({
+            "accounts": [
+                { "id": "codex-1", "harness": "codex", "active": true },
+                { "id": "future-1", "harness": "future-agent", "active": true }
+            ],
+            "warnings": [
+                { "harness": "codex", "message": "Codex warning" },
+                { "harness": "future-agent", "message": "Unknown provider warning" }
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(snapshot.accounts.len(), 1);
+        assert_eq!(snapshot.accounts[0].harness, HarnessId::Codex);
+        assert_eq!(snapshot.warnings.len(), 1);
+        assert_eq!(snapshot.warnings[0].harness, HarnessId::Codex);
+    }
+
     #[test]
     fn only_web_and_loopback_login_urls_open() {
         assert!(is_openable_login_url(
