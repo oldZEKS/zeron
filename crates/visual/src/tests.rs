@@ -652,32 +652,40 @@ fn progress_component_rejects_an_invalid_range() {
 
 
 #[test]
-fn form_groups_fields_and_gates_reply_on_explicit_validation() {
+fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
     let mut visual = Visual::load(
         r#"
-        local s = ui.state { project = "", budget = "250" }
+        local s = ui.state { project = "", budget = 250 }
         return function()
-          local amount = tonumber(s.budget)
-          local valid = string.match(s.project, "%S") ~= nil and amount ~= nil and amount > 0
+          local valid = string.match(s.project, "%S") ~= nil and s.budget > 0
           return ui.form {
             title = "Project setup",
-            description = "Provide the key details before continuing.",
+            description = "Choose the project and set a budget before continuing.",
             fields = {
-              ui.text_input {
-                label = "Project name",
-                value = s.project,
-                on_change = function(v) s.project = v end,
+              ui.column {
+                ui.text "Project",
+                ui.tabs {
+                  options = { "Macaneta", "Maputo" },
+                  value = s.project,
+                  on_change = function(v) s.project = v end,
+                },
               },
-              ui.number_input {
-                label = "Budget (MZN)",
-                value = s.budget,
-                on_change = function(v) s.budget = v end,
+              ui.column {
+                ui.text "Budget (MZN)",
+                ui.slider {
+                  label = "Budget",
+                  value = s.budget,
+                  min = 0,
+                  max = 1000,
+                  step = 50,
+                  on_change = function(v) s.budget = v end,
+                },
               },
             },
             valid = valid,
-            validation_message = "Enter a project name and a positive budget.",
+            validation_message = "Choose a project and a positive budget.",
             submit_label = "Submit project",
-            message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
+            message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
           }
         end
         "#,
@@ -687,14 +695,12 @@ fn form_groups_fields_and_gates_reply_on_explicit_validation() {
 
     let initial = visual.render().unwrap();
     assert!(text_of(&initial).contains("Project setup"));
-    assert!(text_of(&initial).contains("Enter a project name"));
-    assert!(!text_of(&initial).contains("Submit project"));
-
-    let project = find(&initial, &|node| matches!(
+    assert!(text_of(&initial).contains("Choose a project"));
+    let tabs = find(&initial, &|node| matches!(
         &node.kind,
-        NodeKind::Input { label, numeric: false, .. } if label == "Project name"
-    )).expect("project name input should be present");
-    let NodeKind::Input { on_change, .. } = &project.kind else {
+        NodeKind::Tabs { value, .. } if value.is_empty()
+    )).expect("project choices should begin unselected");
+    let NodeKind::Tabs { on_change, .. } = &tabs.kind else {
         unreachable!()
     };
     visual.call(*on_change, HandlerArg::Text("Macaneta".into())).unwrap();
