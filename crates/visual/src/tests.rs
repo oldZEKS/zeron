@@ -700,8 +700,18 @@ fn form_groups_fields_and_gates_reply_on_explicit_validation() {
     visual.call(*on_change, HandlerArg::Text("Macaneta".into())).unwrap();
 
     let updated = visual.render().unwrap();
-    assert!(text_of(&updated).contains("Submit project"));
-    assert!(text_of(&updated).contains("Project: Macaneta"));
+    let submit = find(&updated, &|node| matches!(
+        &node.kind,
+        NodeKind::Button { label, reply: Some(_), .. } if label == "Submit project"
+    ))
+    .expect("valid form should expose an explicit conversational reply");
+    let NodeKind::Button { reply, .. } = &submit.kind else {
+        unreachable!()
+    };
+    assert_eq!(
+        reply.as_deref(),
+        Some("Project: Macaneta\nBudget (MZN): 250")
+    );
 }
 
 #[test]
@@ -773,7 +783,14 @@ fn choice_group_starts_unselected_and_does_not_submit_a_default() {
     visual.call(*on_change, HandlerArg::Text("Vision-first".into())).unwrap();
 
     let selected = visual.render().unwrap();
-    assert!(text_of(&selected).contains("Continue"));
-    assert!(text_of(&selected).contains("Use Vision-first for browser automation."));
+    let submit = find(&selected, &|node| matches!(
+        &node.kind,
+        NodeKind::Button { label, reply: Some(_), .. } if label == "Continue"
+    ))
+    .expect("selected choice should expose an explicit conversational reply");
+    let NodeKind::Button { reply, .. } = &submit.kind else {
+        unreachable!()
+    };
+    assert_eq!(reply.as_deref(), Some("Use Vision-first for browser automation."));
 }
 
