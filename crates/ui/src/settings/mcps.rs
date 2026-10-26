@@ -147,6 +147,52 @@ impl McpsPage {
 impl Render for McpsPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
+        let configured = settings::current(cx).mcp_servers;
+        let server_count = configured.len();
+        let enabled_count = configured.iter().filter(|server| server.enabled).count();
+        let mut server_rows = Vec::new();
+        for (index, server) in configured.iter().enumerate() {
+            let state_label = if server.enabled { "Enabled" } else { "Disabled" };
+            let state_color = if server.enabled { theme.success_muted } else { theme.text_muted };
+            server_rows.push(
+                widgets::card_row(&theme, index == 0)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(widgets::row_title(&theme, server.name.clone()))
+                            .child(widgets::meta_line(
+                                &theme,
+                                vec![div().child(SharedString::from(server.command.clone())).into_any_element()],
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_size(crate::typography::ui_rems(11.5))
+                            .text_color(state_color)
+                            .child(state_label),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let saved_servers_section = widgets::section(
+            &theme,
+            "Saved servers",
+            widgets::section_card(&theme)
+                .mt_0()
+                .child(
+                    div()
+                        .text_color(theme.text_muted)
+                        .text_size(crate::typography::ui_rems(12.0))
+                        .child(format!("{server_count} configured · {enabled_count} enabled. Changes apply to new agent runs.")),
+                )
+                .children(if server_rows.is_empty() {
+                    Some(div().mt(px(8.0)).text_color(theme.text_muted).child("No servers configured yet. Add one in the JSON editor below."))
+                } else {
+                    None
+                })
+                .children(server_rows),
+        );
         let editor = self.editor.clone();
         let editor_panel = div()
             .id("mcp-json-editor-panel")
@@ -200,6 +246,7 @@ impl Render for McpsPage {
                         .child(
                             widgets::page_column()
                                 .child(widgets::page_header(&theme, "MCP Servers", None))
+                                .child(saved_servers_section)
                                 .child(widgets::section(
                                     &theme,
                                     "Configuration",
