@@ -53,6 +53,7 @@ impl SkillsPage {
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.state.read(cx).engine().cloned() else {
+            self.warning = None;
             self.error = Some("Engine not connected.".into());
             self.loading = false;
             cx.notify();
