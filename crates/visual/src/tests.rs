@@ -672,6 +672,7 @@ fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
                 ui.text "Project",
                 ui.tabs {
                   options = { "Macaneta", "Maputo" },
+                  context_label = "Project",
                   value = s.project,
                   on_change = function(v) s.project = v end,
                 },
@@ -727,7 +728,7 @@ fn form_groups_native_controls_and_gates_reply_on_explicit_validation() {
     assert!(reply.contains("Form: Project setup"));
     assert!(reply.contains("Context: Choose the project and set a budget before continuing."));
     assert!(reply.contains("Project: Macaneta\nBudget (MZN): 250"));
-    assert!(reply.contains("Selection: Macaneta (options: Macaneta | Maputo)"));
+    assert!(reply.contains("Project: Macaneta (options: Macaneta | Maputo)"));
     assert!(reply.contains("Budget: 250"));
 }
 
