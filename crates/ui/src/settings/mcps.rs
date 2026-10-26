@@ -255,7 +255,7 @@ impl Render for McpsPage {
                                         .child(
                                             div()
                                                 .text_color(theme.text)
-                                                .child("Configure stdio Model Context Protocol servers for coding-agent runs.")
+                                                .child("Configure stdio MCP servers for supported local coding-agent runners. Enabled servers are injected into new local runs only where the provider supports per-run MCP configuration; remote-hosted runs never launch processes from this device.")
                                                 .mb(px(8.0)),
                                         )
                                         .child(
