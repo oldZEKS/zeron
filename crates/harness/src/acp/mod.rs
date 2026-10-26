@@ -6408,7 +6408,9 @@ mod mcp_injection_tests {
             env: [("ZERON_IPC_PORT".to_owned(), "27654".to_owned())]
                 .into_iter()
                 .collect(),
-        };
+        
+            url: None,
+            headers: Default::default(),};
         let servers = acp_mcp_servers(std::slice::from_ref(&mcp));
         assert_eq!(
             servers,
