@@ -423,6 +423,7 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
         return function()
           return ui.choices {
             title = "Choose an approach",
+            description = "Compare ease, accuracy, and robustness.",
             options = { "DOM-first", "Vision-first", "Hybrid" },
             value = s.approach,
             on_change = function(v) s.approach = v end,
@@ -450,7 +451,7 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
     };
     assert_eq!(
         reply.as_deref(),
-        Some("Question: Choose an approach\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Hybrid for automation.")
+        Some("Question: Choose an approach\nContext: Compare ease, accuracy, and robustness.\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Hybrid for automation.")
     );
 
     visual.call(tab_handler, HandlerArg::Text("Vision-first".into())).unwrap();
@@ -462,7 +463,7 @@ fn conversational_choices_keep_a_draft_and_submit_the_selected_value() {
     let NodeKind::Button { reply, .. } = &button.kind else { unreachable!() };
     assert_eq!(
         reply.as_deref(),
-        Some("Question: Choose an approach\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Vision-first for automation.")
+        Some("Question: Choose an approach\nContext: Compare ease, accuracy, and robustness.\nOptions: DOM-first | Vision-first | Hybrid\nSelected answer: Use Vision-first for automation.")
     );
 
     for script in [
