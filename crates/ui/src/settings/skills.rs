@@ -30,6 +30,7 @@ pub struct SkillsPage {
     loading: bool,
     loaded_harnesses: usize,
     error: Option<String>,
+    warning: Option<String>,
     scroll: widgets::PageScroll,
     task: Option<Task<()>>,
 }
@@ -42,6 +43,7 @@ impl SkillsPage {
             loading: false,
             loaded_harnesses: 0,
             error: None,
+            warning: None,
             scroll: widgets::PageScroll::default(),
             task: None,
         };
@@ -73,6 +75,7 @@ impl SkillsPage {
         };
         self.loading = true;
         self.error = None;
+        self.warning = None;
         self.task = Some(cx.spawn(async move |this, cx| {
             let mut all = Vec::new();
             let mut successes = 0usize;
@@ -98,18 +101,31 @@ impl SkillsPage {
                     Err(error) => failures.push(format!("{label}: {error}")),
                 }
             }
-            this.update(cx, |page, cx| {
+            let warning = if successes > 0 && !failures.is_empty() {
+                let details = failures.iter().take(3).cloned().collect::<Vec<_>>().join(" · ");
+                let remaining = failures.len().saturating_sub(3);
+                Some(if remaining > 0 {
+                    format!("Some agent catalogs could not be read: {details} (+{remaining} more).")
+                } else {
+                    format!("Some agent catalogs could not be read: {details}.")
+                })
+            } else {
+                None
+            };
+            let error_message = if successes == 0 {
+                Some(format!(
+                    "Couldn't load skills from any agent. {}",
+                    failures.into_iter().take(3).collect::<Vec<_>>().join(" ")
+                ))
+            } else {
+                None
+            };
+            this.update(cx, move |page, cx| {
                 page.skills = all;
                 page.loaded_harnesses = successes;
                 page.loading = false;
-                page.error = if successes == 0 {
-                    Some(format!(
-                        "Couldn't load skills from any agent. {}",
-                        failures.into_iter().take(2).collect::<Vec<_>>().join(" ")
-                    ))
-                } else {
-                    None
-                };
+                page.warning = warning;
+                page.error = error_message;
                 cx.notify();
             })
             .ok();
@@ -131,7 +147,8 @@ impl Render for SkillsPage {
 
         let mut sections = Vec::new();
         for (harness, label) in SKILL_HARNESSES {
-            let skills = self.skills.iter().filter(|(id, _)| *id == harness).collect::<Vec<_>>();
+            let mut skills = self.skills.iter().filter(|(id, _)| *id == harness).collect::<Vec<_>>();
+            skills.sort_by(|left, right| left.1.name.cmp(&right.1.name));
             if skills.is_empty() {
                 continue;
             }
@@ -219,8 +236,16 @@ impl Render for SkillsPage {
                                     ),
                                 )
                                 .children(sections)
+                                .children(self.warning.as_ref().map(|message| {
+                                    div()
+                                        .mt(px(6.0))
+                                        .text_color(theme.text_muted)
+                                        .text_size(crate::typography::ui_rems(12.0))
+                                        .child(SharedString::from(message.clone()))
+                                }))
                                 .children(self.error.as_ref().map(|message| {
                                     div()
+                                        .mt(px(6.0))
                                         .text_color(theme.danger_muted)
                                         .child(SharedString::from(message.clone()))
                                 })),
