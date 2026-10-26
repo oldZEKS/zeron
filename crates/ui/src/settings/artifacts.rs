@@ -47,18 +47,18 @@ impl ArtifactFilter {
     }
 
     fn matches(self, entry: &WorkspaceEntry) -> bool {
-        if self == Self::All
+        self == Self::All
             || !matches!(entry.kind, WorkspaceEntryKind::File)
-        {
             // Keep folders and links navigable in every filtered view.
-            return true;
-        }
-        let extension = entry
-            .name
+            || self == Self::category_for_name(&entry.name)
+    }
+
+    fn category_for_name(name: &str) -> Self {
+        let extension = name
             .rsplit_once('.')
             .map(|(_, ext)| ext.to_ascii_lowercase())
             .unwrap_or_default();
-        let category = if matches!(
+        if matches!(
             extension.as_str(),
             "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg" | "bmp" | "tif" | "tiff"
                 | "avif" | "heic" | "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac"
@@ -89,8 +89,7 @@ impl ArtifactFilter {
             Self::Data
         } else {
             Self::Other
-        };
-        self == category
+        }
     }
 
     fn count(self, entries: &[WorkspaceEntry]) -> usize {
@@ -581,5 +580,21 @@ impl Render for ArtifactsPage {
                 )
                 .fade_overflow_y(&self.scroll.scroll),
             )
+    }
+}
+
+
+#[cfg(test)]
+mod artifact_filter_tests {
+    use super::ArtifactFilter;
+
+    #[test]
+    fn categorizes_common_generated_artifact_types_case_insensitively() {
+        assert_eq!(ArtifactFilter::category_for_name("render.PNG"), ArtifactFilter::Media);
+        assert_eq!(ArtifactFilter::category_for_name("paper.pdf"), ArtifactFilter::Documents);
+        assert_eq!(ArtifactFilter::category_for_name("scene.rs"), ArtifactFilter::Code);
+        assert_eq!(ArtifactFilter::category_for_name("results.JSON"), ArtifactFilter::Data);
+        assert_eq!(ArtifactFilter::category_for_name("output.unknownext"), ArtifactFilter::Other);
+        assert_eq!(ArtifactFilter::category_for_name("README"), ArtifactFilter::Other);
     }
 }
