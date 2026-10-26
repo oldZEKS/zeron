@@ -201,6 +201,7 @@ impl TitleGenerator {
         for attempt in 0..=RETRY_DELAYS_MS.len() {
             let mut request = RunRequest {
                 mcp: None,
+                mcp_servers: Vec::new(),
                 prompt: title_prompt.clone(),
                 harness: Some(harness_id),
                 model: model.clone(),
