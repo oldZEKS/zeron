@@ -962,9 +962,18 @@ impl WindowGeometry {
 #[serde(default, rename_all = "camelCase")]
 pub struct ConfiguredMcpServer {
     pub name: String,
+    /// Stdio executable. Empty only when `url` selects Streamable HTTP.
     pub command: String,
     pub args: Vec<String>,
+    /// Environment variables for a stdio child process.
     pub env: std::collections::BTreeMap<String, String>,
+    /// Absolute Streamable HTTP MCP endpoint, for example
+    /// `http://127.0.0.1:4317/mcp`. Mutually exclusive with `command`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// HTTP headers for a remote MCP server. Treat these as credentials.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Disabled by default for backward-compatible, fail-closed configuration.
     pub enabled: bool,
 }
@@ -976,6 +985,8 @@ impl Default for ConfiguredMcpServer {
             command: String::new(),
             args: Vec::new(),
             env: std::collections::BTreeMap::new(),
+            url: None,
+            headers: std::collections::BTreeMap::new(),
             enabled: false,
         }
     }
