@@ -1806,6 +1806,8 @@ impl Inner {
             command,
             args: vec!["mcp".into()],
             env,
+            url: None,
+            headers: Default::default(),
         })
     }
 
