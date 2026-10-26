@@ -1,4 +1,4 @@
-//! Settings → MCP Servers: device-local stdio MCP configuration.
+//! Settings → MCP Servers: device-local stdio and Streamable HTTP configuration.
 //!
 //! A JSON editor is deliberately used for this first management surface so
 //! command arguments and environment maps can be represented without lossy
@@ -416,7 +416,7 @@ impl Render for McpsPage {
                                             div()
                                                 .text_color(theme.text_muted)
                                                 .text_size(crate::typography::ui_rems(12.0))
-                                                .child("MCP server commands run as local child processes with your user permissions. Configure only servers you trust. Environment values are stored in the device-local ui-settings.json file; do not paste credentials you do not want stored there."),
+                                                .child("MCP stdio commands run as local child processes with your user permissions. Configure only servers you trust. Environment values and HTTP headers are stored in the device-local ui-settings.json file; do not paste credentials you do not want stored there."),
                                         ),
                                 )),
                         ),
