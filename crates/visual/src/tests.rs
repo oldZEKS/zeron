@@ -677,7 +677,7 @@ fn form_groups_fields_and_gates_reply_on_explicit_validation() {
             valid = valid,
             validation_message = "Enter a project name and a positive budget.",
             submit_label = "Submit project",
-            message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+            message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
           }
         end
         "#,
