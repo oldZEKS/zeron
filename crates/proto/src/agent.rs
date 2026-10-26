@@ -352,7 +352,7 @@ impl std::fmt::Debug for RunRequest {
             .field("resume", resume)
             .field("attachments", attachments)
             .field("worktree", worktree)
-            .field("mcp", mcp.as_ref().map(|server| &server.name))
+            .field("mcp", &mcp.as_ref().map(|server| &server.name))
             .field(
                 "mcp_servers",
                 &mcp_servers.iter().map(|server| &server.name).collect::<Vec<_>>(),
