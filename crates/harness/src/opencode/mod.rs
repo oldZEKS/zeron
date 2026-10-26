@@ -4700,10 +4700,24 @@ fn mcp_config_many(
         HarnessError::Protocol("OPENCODE_CONFIG_CONTENT.mcp must be an object".into())
     })?;
     for mcp in mcp_servers {
-        let command: Vec<&str> = std::iter::once(mcp.command.as_str())
-            .chain(mcp.args.iter().map(String::as_str))
-            .collect();
-        let mut server = json!({"type": "local", "command": command, "environment": mcp.env});
+        let mut server = if let Some(url) = mcp.url.as_deref() {
+            // OpenCode's V1 and V2 config shapes differ only in the location of
+            // the server map; remote transport fields are otherwise identical.
+            let mut remote = json!({ "type": "remote", "url": url });
+            if !mcp.headers.is_empty() {
+                remote["headers"] = json!(mcp.headers);
+            }
+            remote
+        } else {
+            let command: Vec<&str> = std::iter::once(mcp.command.as_str())
+                .chain(mcp.args.iter().map(String::as_str))
+                .collect();
+            json!({
+                "type": "local",
+                "command": command,
+                "environment": mcp.env
+            })
+        };
         match protocol {
             Protocol::V1 => server["enabled"] = json!(true),
             Protocol::V2 => server["disabled"] = json!(false),
@@ -4887,6 +4901,42 @@ if (process.argv.includes('--version')) {{
             // 2.x reads OPENCODE_PASSWORD first: both must carry ours.
             assert!(probe["auth"]["password"].is_string());
             assert_eq!(probe["auth"]["password"], probe["auth"]["legacy"]);
+        }
+    }
+
+    #[test]
+    fn remote_mcp_injection_preserves_url_and_headers_for_both_protocols() {
+        let mcp = zeron_proto::McpServer {
+            name: "sheet".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: Some("http://127.0.0.1:4317/mcp".into()),
+            headers: [("Authorization".into(), "Bearer test-token".into())]
+                .into_iter()
+                .collect(),
+        };
+        for protocol in [Protocol::V1, Protocol::V2] {
+            let inherited = match protocol {
+                Protocol::V1 => r#"{"model":"keep","mcp":{"other":{"type":"remote","url":"https://example.test/mcp"}}}"#,
+                Protocol::V2 => r#"{"model":"keep","mcp":{"servers":{"other":{"type":"remote","url":"https://example.test/mcp"}}}}"#,
+            };
+            let value: Value = serde_json::from_str(
+                &mcp_config(Some(inherited), &mcp, protocol).unwrap(),
+            )
+            .unwrap();
+            let pointer = if protocol == Protocol::V1 { "/mcp/sheet" } else { "/mcp/servers/sheet" };
+            let server = value.pointer(pointer).unwrap();
+            assert_eq!(server["type"], "remote");
+            assert_eq!(server["url"], "http://127.0.0.1:4317/mcp");
+            assert_eq!(server["headers"]["Authorization"], "Bearer test-token");
+            assert_eq!(value["model"], "keep");
+            assert!(value.pointer(if protocol == Protocol::V1 { "/mcp/other" } else { "/mcp/servers/other" }).is_some());
+            if protocol == Protocol::V1 {
+                assert_eq!(server["enabled"], true);
+            } else {
+                assert_eq!(server["disabled"], false);
+            }
         }
     }
 
