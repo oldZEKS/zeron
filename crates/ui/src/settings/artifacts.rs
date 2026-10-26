@@ -29,6 +29,8 @@ pub struct ArtifactsPage {
     preview_text: Option<String>,
     preview_notice: Option<String>,
     loading: bool,
+    /// Monotonic request token so slow responses cannot overwrite a newer workspace or preview.
+    request_generation: u64,
     error: Option<String>,
     scroll: widgets::PageScroll,
     task: Option<Task<()>>,
@@ -77,6 +79,7 @@ impl ArtifactsPage {
             preview_text: None,
             preview_notice: None,
             loading: false,
+            request_generation: 0,
             error: None,
             scroll: widgets::PageScroll::default(),
             task: None,
@@ -90,6 +93,8 @@ impl ArtifactsPage {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.request_generation = self.request_generation.wrapping_add(1);
+        let generation = self.request_generation;
         let Some(engine) = self.state.read(cx).engine().cloned() else {
             self.entries.clear();
             self.target_label = None;
@@ -178,6 +183,9 @@ impl ArtifactsPage {
                 .map_err(|error| error.to_string())
                 .and_then(|value| serde_json::from_value::<WorkspaceDirectoryPage>(value).map_err(|error| error.to_string()));
             this.update(cx, |page, cx| {
+                if page.request_generation != generation {
+                    return;
+                }
                 page.loading = false;
                 match result {
                     Ok(listing) => {
@@ -215,6 +223,8 @@ impl ArtifactsPage {
     }
 
     fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
+        self.request_generation = self.request_generation.wrapping_add(1);
+        let generation = self.request_generation;
         let Some(engine) = self.state.read(cx).engine().cloned() else {
             self.preview_notice = Some("Engine not connected.".into());
             cx.notify();
@@ -241,6 +251,9 @@ impl ArtifactsPage {
                 .map_err(|error| error.to_string())
                 .and_then(|value| serde_json::from_value::<WorkspaceFileText>(value).map_err(|error| error.to_string()));
             this.update(cx, |page, cx| {
+                if page.request_generation != generation {
+                    return;
+                }
                 match result {
                     Ok(file) => {
                         page.preview_path = Some(file.path.clone());
