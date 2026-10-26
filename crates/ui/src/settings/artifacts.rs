@@ -19,6 +19,9 @@ pub struct ArtifactsPage {
     state: Entity<AppState>,
     target: Option<WorkspaceTarget>,
     target_device_id: Option<String>,
+    /// Identity of the workspace currently represented by the listing. Prevents stale
+    /// paths/previews from leaking across chat/project switches while Settings stays open.
+    target_key: Option<String>,
     directory: String,
     entries: Vec<WorkspaceEntry>,
     preview_path: Option<String>,
@@ -61,6 +64,7 @@ impl ArtifactsPage {
             state,
             target,
             target_device_id,
+            target_key: None,
             directory: String::new(),
             entries: Vec::new(),
             preview_path: None,
@@ -81,6 +85,10 @@ impl ArtifactsPage {
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.state.read(cx).engine().cloned() else {
+            self.entries.clear();
+            self.preview_path = None;
+            self.preview_text = None;
+            self.preview_notice = None;
             self.error = Some("Engine not connected.".into());
             self.loading = false;
             cx.notify();
@@ -116,11 +124,30 @@ impl ArtifactsPage {
         self.target = target;
         self.target_device_id = target_device_id;
         let Some(target) = self.target.clone() else {
+            // Never leave the last workspace visible after its selection disappears.
+            self.entries.clear();
+            self.directory.clear();
+            self.preview_path = None;
+            self.preview_text = None;
+            self.preview_notice = None;
+            self.target_key = None;
             self.error = Some("Select a project or chat in the main window first. Artifacts are shown from that workspace; this page does not search your whole computer.".into());
             self.loading = false;
             cx.notify();
             return;
         };
+        let target_key = format!(
+            "{:?}|{:?}|{:?}|{:?}",
+            target.chat_id, target.space_id, target.checkout_path, self.target_device_id
+        );
+        if self.target_key.as_deref() != Some(target_key.as_str()) {
+            self.target_key = Some(target_key);
+            self.directory.clear();
+            self.entries.clear();
+            self.preview_path = None;
+            self.preview_text = None;
+            self.preview_notice = None;
+        }
         let directory = self.directory.clone();
         let mut params = Self::request_target(&target);
         params["directory"] = serde_json::Value::String(directory.clone());
