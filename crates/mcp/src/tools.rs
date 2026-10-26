@@ -257,6 +257,8 @@ Show a native, interactive visual (chart, table, dashboard, diagram, simulation,
 
 Scripts use Luau (Lua 5.1 plus +=, continue, and if expressions). They run in a sandbox with no I/O or network, a 64 MB memory cap, and a short execution budget. Build data and state at the top level and return a view function. Handlers should update top-level state; Zeron re-renders the view after an interaction. The runtime validates setup, rendering, draw handlers, and each control before displaying the visual. Fix any reported script error and call again.
 
+When a meaningful decision belongs to the user, do not silently pick an option. Use ui.choices with an empty initial value (for example, local s = ui.state { approach = "" }); the options start unselected and Continue appears only after the reader chooses. Never describe a queued action as completed: show progress from observed results, and mark steps done only after verification. Use ui.form for grouped input with explicit validation and submit; its reply is conversation input, not permission to perform an external action.
+
 Basic example:
 local s = ui.state { metric = "p95" }
 local data = {
@@ -292,7 +294,9 @@ TASK STATUS, PROGRESS, AND DIFFS
 
 INTERACTION
 - ui.tabs { options = { ... }, value, on_change = function(option) end }, ui.toggle { label, value = bool, on_change = function(on) end }, ui.slider { label, value, min, max, step, unit, on_change = function(n) end }, and ui.button { label, on_click = function() end, primary = bool } are local interactive controls.
-- For a conversational response, use ui.reply { label = "Use this", message = "The user's selected response", primary = true }. For alternatives use ui.choices { title = "Choose an approach", options = { "DOM-first", "Vision-first", "Hybrid" }, value = s.approach, on_change = function(v) s.approach = v end, reply_prefix = "Use ", reply_suffix = " for automation.", submit_label = "Continue" }. Keep state at the top level; changing an option only edits the draft, and the reader must click Continue to send it into this chat. Prefer ui.button for local-only actions. A click must not run arbitrary code or bypass the user's original instructions.
+- For one user-selected response, use ui.reply { label = "Use this", message = "The user's selected response", primary = true }. For alternatives, use ui.choices { title = "Choose an approach", options = { "DOM-first", "Vision-first", "Hybrid" }, value = s.approach, on_change = function(v) s.approach = v end, reply_prefix = "Use ", reply_suffix = " for automation.", submit_label = "Continue" } with s.approach initialized to "". Empty means no selection and hides Continue. Changing a tab is only a draft; the reader must click Continue to submit. Do not invent a default when the choice materially affects the task.
+- Use ui.form { title, description, fields = { ui.text_input { ... }, ui.number_input { ... } }, valid = bool, validation_message, submit_label, message } to group up to 12 native draft fields. Compute valid from current state and check numbers/ranges before showing submission. It sends only a bounded message to the chat when the user explicitly clicks; it does not execute the requested operation.
+- Use ui.steps { title, description, steps = { { label, detail, state = "done|active|pending|blocked" } } } for a task timeline of up to 12 steps. Only use done after verifying the result. ui.status and ui.progress are state displays; they are not evidence of success. ui.diff is read-only. Prefer ui.button for local-only interactions. A click must not run arbitrary code or bypass the user's original instructions.
 
 DRAWING AND 3D
 - ui.canvas { height = 240, draw = function(g, w, h, t) ... end, animate = bool, on_click = function(x, y) end } draws in pixel coordinates from the top-left. Helpers include g:line, g:polyline, g:polygon, g:rect, g:circle, g:arc and g:text. g.pointer reports pointer coordinates and whether it is down.
