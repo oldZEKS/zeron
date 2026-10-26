@@ -168,7 +168,7 @@ return function()
     valid = valid,
     validation_message = "Enter a project name and a positive budget.",
     submit_label = "Submit details",
-    message = "Project: " .. s.project .. "\\nBudget (MZN): " .. s.budget,
+    message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
   }
 end
 ```
