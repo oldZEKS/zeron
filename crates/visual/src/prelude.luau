@@ -341,4 +341,129 @@ function ui.diff(props)
 	return ui.card(card)
 end
 
+
+-- A compact, validated form composition. Inputs stay as drafts until the
+-- explicit reply button is clicked; callers must compute validity from state.
+-- This component never executes application actions itself.
+function ui.form(props)
+	if type(props) ~= "table" then
+		error("ui.form expects a props table")
+	end
+	check_component_props(props, "ui.form", {
+		title = true, description = true, fields = true, valid = true,
+		validation_message = true, submit_label = true, message = true,
+		primary = true, gap = true,
+	})
+	if props.title ~= nil and type(props.title) ~= "string" then
+		error("ui.form title must be a string")
+	end
+	if props.description ~= nil and type(props.description) ~= "string" then
+		error("ui.form description must be a string")
+	end
+	if type(props.fields) ~= "table" or #props.fields == 0 or #props.fields > 12 then
+		error("ui.form requires between 1 and 12 fields")
+	end
+	for i, field in ipairs(props.fields) do
+		if type(field) ~= "table" then
+			error("ui.form field " .. tostring(i) .. " must be a native UI component")
+		end
+	end
+	if type(props.valid) ~= "boolean" then
+		error("ui.form requires an explicit valid boolean")
+	end
+	if type(props.message) ~= "string" or #props.message == 0
+		or #props.message > 8192 or not string.match(props.message, "%S") then
+		error("ui.form message must contain 1 to 8192 non-whitespace bytes")
+	end
+	if props.validation_message ~= nil and type(props.validation_message) ~= "string" then
+		error("ui.form validation_message must be a string")
+	end
+	if props.primary ~= nil and type(props.primary) ~= "boolean" then
+		error("ui.form primary must be true or false")
+	end
+	local card = ui.card {
+		title = props.title,
+		description = props.description,
+		gap = props.gap or 10,
+	}
+	for _, field in ipairs(props.fields) do
+		table.insert(card, field)
+	end
+	if props.valid then
+		table.insert(card, ui.reply {
+			label = props.submit_label or "Submit",
+			message = props.message,
+			primary = props.primary ~= false,
+		})
+	else
+		table.insert(card, ui.status {
+			label = "More information needed",
+			detail = props.validation_message or "Complete the fields before submitting.",
+			tone = "warning",
+		})
+	end
+	return card
+end
+
+-- A bounded task/checklist timeline. State is presentation only and should
+-- reflect observed work, not a prediction that a step has already succeeded.
+function ui.steps(props)
+	if type(props) ~= "table" then
+		error("ui.steps expects a props table")
+	end
+	check_component_props(props, "ui.steps", {
+		title = true, description = true, steps = true, gap = true,
+	})
+	if props.title ~= nil and type(props.title) ~= "string" then
+		error("ui.steps title must be a string")
+	end
+	if props.description ~= nil and type(props.description) ~= "string" then
+		error("ui.steps description must be a string")
+	end
+	if type(props.steps) ~= "table" or #props.steps == 0 or #props.steps > 12 then
+		error("ui.steps requires between 1 and 12 steps")
+	end
+	local symbols = {
+		done = { "✓", "success" },
+		active = { "●", "accent" },
+		pending = { "○", "muted" },
+		blocked = { "!", "danger" },
+	}
+	local card = ui.card {
+		title = props.title or "Progress",
+		description = props.description,
+		gap = props.gap or 8,
+	}
+	for i, step in ipairs(props.steps) do
+		if type(step) ~= "table" then
+			error("ui.steps entry " .. tostring(i) .. " must be a table")
+		end
+		if type(step.label) ~= "string" or not string.match(step.label, "%S") then
+			error("ui.steps entry " .. tostring(i) .. " needs a non-empty label")
+		end
+		if step.detail ~= nil and type(step.detail) ~= "string" then
+			error("ui.steps detail must be a string")
+		end
+		local state = step.state or "pending"
+		local marker = symbols[state]
+		if not marker then
+			error("ui.steps state must be done, active, pending, or blocked")
+		end
+		local content = ui.column {
+			gap = 2,
+			ui.text { step.label, size = "body", weight = state == "active" and 600 or 500 },
+		}
+		if step.detail and step.detail ~= "" then
+			table.insert(content, ui.text { step.detail, size = "sm", color = "muted" })
+		end
+		table.insert(card, ui.row {
+			gap = 8,
+			align = "start",
+			ui.text { marker[1], size = "sm", color = marker[2], mono = true, weight = 600 },
+			content,
+		})
+	end
+	return card
+end
+
 return ui
