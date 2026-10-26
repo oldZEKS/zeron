@@ -1433,6 +1433,7 @@ impl SessionsEngine {
                         let (_, cwd, _) = sessions.inner.journal_harness_session(&chat_id)?;
                         Some(RunRequest {
                             mcp: None,
+                            mcp_servers: Vec::new(),
                             prompt: String::new(),
                             harness: None,
                             model: None,
