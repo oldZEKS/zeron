@@ -141,45 +141,54 @@ apply patches, open files, run tests, or authorize an operation.
 
 ## Structured forms and task steps
 
-Use `ui.form` when a response needs a small set of user-provided values. Keep editable drafts in
-`ui.state`, validate them on every render, and pass an explicit boolean `valid`. The submit
-button is replaced by a validation status while the form is invalid. The form sends a bounded
-message to the conversation only when the user clicks Submit; it does not run shell commands,
-apply patches, or invoke application actions.
+Use `ui.form` to group supported native controls (such as tabs, toggles, and sliders) into a
+small validated conversational submission. Keep draft selections in `ui.state`, validate them
+on every render, and pass an explicit boolean `valid`. The submit button is replaced by a
+validation status while the form is invalid. The form sends a bounded message to the conversation
+only when the user clicks Submit; it does not run shell commands, apply patches, or invoke
+application actions. This runtime does not yet provide free-text or numeric-entry widgets, so do
+not use `ui.text_input` or `ui.number_input`.
 
 ```lua
-local s = ui.state { project = "", budget = "25000" }
+local s = ui.state { project = "", budget = 25000 }
 return function()
-  local amount = tonumber(s.budget)
-  local valid = string.match(s.project, "%S") ~= nil and amount ~= nil and amount > 0
+  local valid = s.project ~= "" and s.budget > 0
   return ui.form {
     title = "Project setup",
-    description = "Confirm the details before continuing.",
+    description = "Choose a project and set a budget before continuing.",
     fields = {
-      ui.text_input {
-        label = "Project name",
-        value = s.project,
-        placeholder = "e.g. Macaneta Tourism School",
-        on_change = function(v) s.project = v end,
+      ui.column {
+        ui.text "Project",
+        ui.tabs {
+          options = { "Macaneta", "Maputo" },
+          value = s.project,
+          on_change = function(v) s.project = v end,
+        },
       },
-      ui.number_input {
-        label = "Budget (MZN)",
-        value = s.budget,
-        placeholder = "Enter an amount",
-        on_change = function(v) s.budget = v end,
+      ui.column {
+        ui.text "Budget (MZN)",
+        ui.slider {
+          label = "Budget",
+          value = s.budget,
+          min = 0,
+          max = 100000,
+          step = 1000,
+          unit = "MZN",
+          on_change = function(v) s.budget = v end,
+        },
       },
     },
     valid = valid,
-    validation_message = "Enter a project name and a positive budget.",
+    validation_message = "Choose a project and a positive budget.",
     submit_label = "Submit details",
     message = "Project: " .. s.project .. "\nBudget (MZN): " .. s.budget,
   }
 end
 ```
 
-A form accepts 1–12 native fields. Validate domain-specific constraints yourself; this is a
-presentation and message-composition helper, not a security boundary. The message is still only
-user input to the owning conversation.
+A form accepts 1–12 supported native controls. Validate domain-specific constraints yourself;
+this is a presentation and message-composition helper, not a security boundary. The message is
+still only user input to the owning conversation.
 
 Use `ui.steps` for a bounded checklist or workflow timeline:
 
@@ -220,8 +229,8 @@ an action was requested or queued.
 ## Scope
 
 This branch implements desktop reply buttons, choice groups that can begin unselected, native cards,
-draft text/number inputs, validated form composition, status rows, progress bars, task-step timelines,
-and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal
+validated form composition using supported native controls, status rows, progress bars, task-step
+timelines, and read-only code diff previews on top of the existing Luau visual runtime. It is not yet a universal
 JSON component protocol or full mobile GenUI. Mobile lays cards out with matching content hierarchy
 and padding, but the desktop's outer card frame is not yet rendered there. Conversational reply
 dispatch and editable text inputs are also desktop-only.
