@@ -120,11 +120,14 @@ pub struct ArtifactsPage {
     preview_text: Option<String>,
     preview_notice: Option<String>,
     loading: bool,
+    /// Selection identity observed while Settings stays open.
+    selection_key: Option<String>,
     /// Monotonic request token so slow responses cannot overwrite a newer workspace or preview.
     request_generation: u64,
     error: Option<String>,
     scroll: widgets::PageScroll,
     task: Option<Task<()>>,
+    _observe_state: Option<gpui::Subscription>,
 }
 
 impl ArtifactsPage {
@@ -171,13 +174,38 @@ impl ArtifactsPage {
             preview_text: None,
             preview_notice: None,
             loading: false,
+            selection_key: None,
             request_generation: 0,
             error: None,
             scroll: widgets::PageScroll::default(),
             task: None,
+            _observe_state: None,
         };
         page.refresh(cx);
+        let observed_state = page.state.clone();
+        page._observe_state = Some(cx.observe(&observed_state, |page, state, cx| {
+            let key = Self::selected_context_key(state);
+            if page.selection_key.as_deref() != Some(key.as_str()) {
+                page.refresh(cx);
+            }
+        }));
         page
+    }
+
+    fn selected_context_key(state: &AppState) -> String {
+        let chat_id = state.selected_chat.clone();
+        let (chat_device, project) = if chat_id.is_some() {
+            (
+                state.selected_chat_row().map(|chat| chat.device_id.clone()),
+                None,
+            )
+        } else {
+            (
+                None,
+                state.selected_space_row().map(|space| (space.id.clone(), space.device_id.clone())),
+            )
+        };
+        format!("{chat_id:?}|{chat_device:?}|{project:?}|{:?}", state.local_device_id)
     }
 
     fn request_target(target: &WorkspaceTarget) -> serde_json::Value {
@@ -187,6 +215,11 @@ impl ArtifactsPage {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.request_generation = self.request_generation.wrapping_add(1);
         let generation = self.request_generation;
+        let selection_key = {
+            let state = self.state.read(cx);
+            Self::selected_context_key(&state)
+        };
+        self.selection_key = Some(selection_key);
         let Some(engine) = self.state.read(cx).engine().cloned() else {
             self.entries.clear();
             self.target_label = None;
