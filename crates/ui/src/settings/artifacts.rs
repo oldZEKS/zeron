@@ -19,6 +19,7 @@ pub struct ArtifactsPage {
     state: Entity<AppState>,
     target: Option<WorkspaceTarget>,
     target_device_id: Option<String>,
+    target_label: Option<String>,
     /// Identity of the workspace currently represented by the listing. Prevents stale
     /// paths/previews from leaking across chat/project switches while Settings stays open.
     target_key: Option<String>,
@@ -35,17 +36,21 @@ pub struct ArtifactsPage {
 
 impl ArtifactsPage {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
-        let (target, target_device_id) = {
+        let (target, target_device_id, target_label) = {
             let state_ref = state.read(cx);
             let local_device_id = state_ref.local_device_id.clone();
             if let Some(chat_id) = state_ref.selected_chat.clone() {
-                let device = state_ref.selected_chat_row().map(|chat| chat.device_id.clone());
+                let selected_chat = state_ref.selected_chat_row();
+                let device = selected_chat.map(|chat| chat.device_id.clone());
+                let label = selected_chat
+                    .map(|chat| format!("Chat: {}", chat.title))
+                    .unwrap_or_else(|| format!("Chat: {chat_id}"));
                 let target_device = device.filter(|id| local_device_id.as_deref().is_some_and(|local| local != id.as_str()));
                 (Some(WorkspaceTarget {
                     chat_id: Some(chat_id),
                     space_id: None,
                     checkout_path: None,
-                }), target_device)
+                }), target_device, Some(label))
             } else if let Some(space) = state_ref.selected_space_row() {
                 let target_device = local_device_id
                     .as_deref()
@@ -55,15 +60,16 @@ impl ArtifactsPage {
                     chat_id: None,
                     space_id: Some(space.id.clone()),
                     checkout_path: None,
-                }), target_device)
+                }), target_device, Some(format!("Project: {}", space.path)))
             } else {
-                (None, None)
+                (None, None, None)
             }
         };
         let mut page = Self {
             state,
             target,
             target_device_id,
+            target_label,
             target_key: None,
             directory: String::new(),
             entries: Vec::new(),
@@ -86,6 +92,7 @@ impl ArtifactsPage {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.state.read(cx).engine().cloned() else {
             self.entries.clear();
+            self.target_label = None;
             self.preview_path = None;
             self.preview_text = None;
             self.preview_notice = None;
@@ -96,17 +103,21 @@ impl ArtifactsPage {
         };
         // Settings can stay open while the selected chat/project changes.
         // Re-resolve the target on every refresh so the page follows that choice.
-        let (target, target_device_id) = {
+        let (target, target_device_id, target_label) = {
             let state = self.state.read(cx);
             let local_device_id = state.local_device_id.clone();
             if let Some(chat_id) = state.selected_chat.clone() {
-                let device = state.selected_chat_row().map(|chat| chat.device_id.clone());
+                let selected_chat = state.selected_chat_row();
+                let device = selected_chat.map(|chat| chat.device_id.clone());
+                let label = selected_chat
+                    .map(|chat| format!("Chat: {}", chat.title))
+                    .unwrap_or_else(|| format!("Chat: {chat_id}"));
                 let target_device = device.filter(|id| local_device_id.as_deref() != Some(id.as_str()));
                 (Some(WorkspaceTarget {
                     chat_id: Some(chat_id),
                     space_id: None,
                     checkout_path: None,
-                }), target_device)
+                }), target_device, Some(label))
             } else if let Some(space) = state.selected_space_row() {
                 let target_device = local_device_id
                     .as_deref()
@@ -116,13 +127,14 @@ impl ArtifactsPage {
                     chat_id: None,
                     space_id: Some(space.id.clone()),
                     checkout_path: None,
-                }), target_device)
+                }), target_device, Some(format!("Project: {}", space.path)))
             } else {
-                (None, None)
+                (None, None, None)
             }
         };
         self.target = target;
         self.target_device_id = target_device_id;
+        self.target_label = target_label;
         let Some(target) = self.target.clone() else {
             // Never leave the last workspace visible after its selection disappears.
             self.entries.clear();
@@ -131,6 +143,7 @@ impl ArtifactsPage {
             self.preview_text = None;
             self.preview_notice = None;
             self.target_key = None;
+            self.target_label = None;
             self.error = Some("Select a project or chat in the main window first. Artifacts are shown from that workspace; this page does not search your whole computer.".into());
             self.loading = false;
             cx.notify();
@@ -275,6 +288,7 @@ impl Render for ArtifactsPage {
             .on_click(cx.listener(|page, _, _, cx| page.go_parent(cx)))
             .child("← Parent");
         let path_label = if self.directory.is_empty() { "/".to_owned() } else { format!("/{}", self.directory) };
+        let target_label = self.target_label.clone().unwrap_or_else(|| "No workspace selected".to_owned());
 
         let mut entry_rows = Vec::new();
         for entry in &self.entries {
@@ -377,6 +391,13 @@ impl Render for ArtifactsPage {
                                                 .text_color(theme.text_muted)
                                                 .text_size(crate::typography::ui_rems(12.0))
                                                 .child("Browse and preview outputs in the currently selected chat or project. Files remain in the workspace; opening this page does not copy or modify them."),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt(px(8.0))
+                                                .text_color(theme.text_muted)
+                                                .text_size(crate::typography::ui_rems(12.0))
+                                                .child(SharedString::from(target_label)),
                                         )
                                         .child(
                                             div()
