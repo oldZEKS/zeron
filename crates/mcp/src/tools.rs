@@ -257,7 +257,7 @@ Show a native, interactive visual (chart, table, dashboard, diagram, simulation,
 
 Scripts use Luau (Lua 5.1 plus +=, continue, and if expressions). They run in a sandbox with no I/O or network, a 64 MB memory cap, and a short execution budget. Build data and state at the top level and return a view function. Handlers should update top-level state; Zeron re-renders the view after an interaction. The runtime validates setup, rendering, draw handlers, and each control before displaying the visual. Fix any reported script error and call again.
 
-When a meaningful decision belongs to the user, do not silently pick an option. Use ui.choices with an empty initial value (for example, local s = ui.state { approach = "" }); the options start unselected and Continue appears only after the reader chooses. Never describe a queued action as completed: show progress from observed results, and mark steps done only after verification. Use ui.form for grouped input with explicit validation and submit; its reply is conversation input, not permission to perform an external action.
+When a meaningful decision belongs to the user, do not silently pick an option. Use ui.choices with its state initialized to the empty string (for example, approach = ""); the options start unselected and Continue appears only after the reader chooses. Never describe a queued action as completed: show progress from observed results, and mark steps done only after verification. Use ui.form for grouped input with explicit validation and submit; its reply is conversation input, not permission to perform an external action.
 
 Basic example:
 local s = ui.state { metric = "p95" }
